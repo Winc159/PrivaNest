@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NConfigProvider, dateZhCN, zhCN } from 'naive-ui'
+import { NConfigProvider, NMessageProvider, dateZhCN, zhCN } from 'naive-ui'
 import type { GlobalThemeOverrides } from 'naive-ui'
 
 // 自定义主题配置
@@ -14,6 +14,8 @@ const themeOverrides: GlobalThemeOverrides = {
 
 <template>
   <n-config-provider :locale="zhCN" :date-locale="dateZhCN" :theme-overrides="themeOverrides">
-    <slot />
+    <n-message-provider>
+      <slot />
+    </n-message-provider>
   </n-config-provider>
 </template>

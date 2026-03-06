@@ -4,6 +4,7 @@ import naive from 'naive-ui'
 
 import App from './App.vue'
 import router from './router'
+import './styles/global.scss'
 
 const app = createApp(App)
 const pinia = createPinia()

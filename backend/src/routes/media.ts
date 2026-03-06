@@ -1,6 +1,6 @@
 import Router from 'koa-router'
-import mediaController from '../controllers/media.js'
-import { upload } from '../middlewares/upload.js'
+import {mediaController} from '../controllers/media.ts'
+import { upload } from '../middlewares/upload.ts'
 
 const router = new Router()
 

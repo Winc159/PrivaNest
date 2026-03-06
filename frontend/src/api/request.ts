@@ -20,10 +20,10 @@ request.interceptors.request.use(
   }
 )
 
-// 响应拦截器
+// 响应拦截器 - 直接返回 response.data
 request.interceptors.response.use(
-  (response: AxiosResponse) => {
-    return response.data
+  <T>(response: AxiosResponse<T>) => {
+    return response.data as T
   },
   (error: AxiosError) => {
     if (error.response?.status === 401) {

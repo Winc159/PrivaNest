@@ -3,10 +3,11 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { authApi } from '@/api'
-import { NMessageProvider, showMessage } from 'naive-ui'
+import {  useMessage } from 'naive-ui'
 
 const router = useRouter()
 const userStore = useUserStore()
+const message = useMessage()
 
 const loginForm = ref({
   username: '',
@@ -17,25 +18,25 @@ const loading = ref(false)
 
 const handleLogin = async () => {
   if (!loginForm.value.username || !loginForm.value.password) {
-    showMessage.error('请输入用户名和密码')
+    message.error('请输入用户名和密码')
     return
   }
 
   loading.value = true
   try {
     const res = await authApi.login(loginForm.value)
-    userStore.login(res.user, res.token)
-    showMessage.success('登录成功')
+    userStore.login(res.data.user, res.data.token)
+    message.success('登录成功')
     router.push('/')
   } catch (error: any) {
-    showMessage.error(error.response?.data?.message || '登录失败')
+    message.error(error.response?.data?.message || '登录失败')
   } finally {
     loading.value = false
   }
 }
 
 const goToRegister = () => {
-  showMessage.info('注册功能开发中...')
+  message.info('注册功能开发中...')
 }
 </script>
 

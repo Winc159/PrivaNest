@@ -6,13 +6,6 @@ import { config } from './config/index.js'
 
 const app: Koa = new Koa()
 
-// 中间件
-app.use(cors()) // 跨域支持
-app.use(bodyParser()) // 请求体解析
-
-// 路由
-app.use(router.routes())
-app.use(router.allowedMethods())
 
 // 错误处理
 app.use(async (ctx, next) => {
@@ -27,6 +20,16 @@ app.use(async (ctx, next) => {
     }
   }
 })
+
+// 中间件
+app.use(cors()) // 跨域支持
+app.use(bodyParser()) // 请求体解析
+
+// 路由
+app.use(router.routes())
+app.use(router.allowedMethods())
+
+
 
 // 启动服务器
 app.listen(config.port, () => {
