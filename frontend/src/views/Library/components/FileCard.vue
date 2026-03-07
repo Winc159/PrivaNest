@@ -28,7 +28,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  click: [path: string]
+  click: [file: FileData]
 }>()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -49,7 +49,7 @@ const handleClick = () => {
     isFolder: props.isFolder,
     isVideoFile: isVideoFile.value
   })
-  emit('click', props.file.path)
+  emit('click', props.file)
 }
 
 // 检测图片方向并设置合适的显示比例
@@ -95,7 +95,9 @@ const updateImageOrientation = (width: number, height: number) => {
 // 判断是否为视频文件
 const isVideoFile = computed(() => {
   const ext = props.file.ext?.toLowerCase()
-  return ext && ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm'].includes(ext)
+  // 移除前导点号，兼容 .mp4 和 mp4 两种格式
+  const cleanExt = ext?.replace('.', '')
+  return cleanExt && ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm'].includes(cleanExt)
 })
 
 </script>
@@ -151,12 +153,20 @@ const isVideoFile = computed(() => {
 .media-item {
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
   
   // 网格模式 - macOS Finder 风格
   &.grid {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    height: 100%;
+    justify-content: space-between;
+    
     .media-wrapper {
       position: relative;
       width: 100%;
+      height: 100%;
       overflow: hidden;
       background: transparent; // 透明背景，无颜色
       border-radius: 8px;
@@ -164,7 +174,7 @@ const isVideoFile = computed(() => {
       
       // 横拍图容器：扁平的长方形（16:9）
       &.landscape {
-        padding-top: 56.25%; // 宽/高 = 16/9 ≈ 1.78，更宽更矮
+        padding-top: 25%; // 宽/高 = 16/9 ≈ 1.78，更宽更矮
       }
       
       // 竖拍图容器：瘦高的长方形（9:16）
@@ -186,10 +196,12 @@ const isVideoFile = computed(() => {
       &.video-wrapper {
         display: flex;
         align-items: center;
+        height: 100%;
         justify-content: center;
         background: transparent; // 透明背景
         
         .video-icon {
+          font-size: 48px;
           transition: transform 0.3s ease;
         }
         
@@ -208,6 +220,7 @@ const isVideoFile = computed(() => {
         background: transparent; // 透明背景
         
         .folder-icon {
+          font-size: 48px;
           transition: transform 0.3s ease;
         }
         
@@ -249,6 +262,7 @@ const isVideoFile = computed(() => {
       -webkit-box-orient: vertical;
       word-break: break-word;
       color: #666;
+      width: 100%;
     }
   }
   

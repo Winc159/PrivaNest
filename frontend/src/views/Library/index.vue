@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, nextTick, watch } from 'vue'
 import { useMediaStore } from '@/stores/media'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useThumbnail } from '@/composables/useThumbnail'
 import { useFileNavigation } from '@/composables/useFileNavigation'
 import LibraryHeader from './components/LibraryHeader.vue'
@@ -15,10 +15,12 @@ interface FileData {
   fullPath?: string
   size?: string
   ext?: string
+  type?: 'video' | 'image' | 'folder'
 }
 
 const mediaStore = useMediaStore()
 const router = useRouter()
+const route = useRoute()
 
 // 使用 composables
 const { 
@@ -45,12 +47,22 @@ const {
 
 onMounted(async () => {
   await initLibraries()
-  await loadFolders('/', mediaStore)
+  
+  // 从路由参数中获取路径，如果没有则默认为 '/'
+  const initialPath = route.query.path as string || '/'
+  await loadFolders(initialPath, mediaStore)
   
   // 初始加载完成后立即观察 Canvas
   nextTick(() => {
     observeCanvases()
   })
+})
+
+// 监听路由参数变化，当 URL 中的 path 改变时重新加载文件夹
+watch(() => route.query.path, (newPath) => {
+  if (newPath && newPath !== mediaStore.currentPath) {
+    navigateTo(newPath as string, mediaStore)
+  }
 })
 
 // 监听 Canvas 元素渲染
@@ -65,7 +77,27 @@ watch(() => mediaStore.files, (newFiles) => {
 
 // 事件处理函数
 const handleFolderClick = (path: string) => {
+  // 导航到子文件夹时，同步更新 URL 参数
+  router.push({ 
+    query: { ...route.query, path } 
+  })
   navigateTo(path, mediaStore)
+}
+
+const handleFileClick = (file: FileData) => {
+  // 如果是视频文件，跳转到播放页面，并携带当前路径作为返回位置
+  if (file.type === 'video') {
+    router.push({
+      path: `/player/${currentLibrary.value}${file.path}`,
+      query: { 
+        from: '/library',
+        path: route.query.path || '/' // 保存当前浏览路径（从 URL 获取）
+      }
+    })
+  } else {
+    // 图片文件暂时只输出日志，后续可实现预览
+    console.log('点击文件:', file)
+  }
 }
 
 const handleUploadSuccess = () => {
@@ -117,7 +149,7 @@ const handleShouldGenerateThumbnail = (file: FileData): boolean => {
       :get-thumbnail-url="getThumbnailUrl"
       :should-generate-thumbnail="handleShouldGenerateThumbnail"
       @folder-click="handleFolderClick"
-      @file-click="handleFolderClick"
+      @file-click="handleFileClick"
       @scroll="(e: Event) => handleScroll(e, mediaStore)"
     />
   </div>

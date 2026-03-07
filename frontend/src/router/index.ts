@@ -20,9 +20,9 @@ const routes = [
     meta: { title: '媒体库', requiresAuth: true }
   },
   {
-    path: '/player/:id',
+    path: '/player/:libraryIndex/:path+',
     name: 'Player',
-    component: () => import('@/views/Player.vue'),
+    component: () => import('@/views/Player/index.vue'),
     meta: { title: '播放器', requiresAuth: true }
   },
   {

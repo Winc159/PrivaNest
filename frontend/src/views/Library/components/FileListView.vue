@@ -26,16 +26,16 @@ const props = defineProps<Props>()
 
 const emit = defineEmits<{
   'folder-click': [path: string]
-  'file-click': [path: string]
+  'file-click': [file: FileData]
   'scroll': [event: Event]
 }>()
 
-const handleFolderClick = (path: string) => {
-  emit('folder-click', path)
+const handleFolderClick = (folder: FileData) => {
+  emit('folder-click', folder.path)
 }
 
-const handleFileClick = (path: string) => {
-  emit('file-click', path)
+const handleFileClick = (file: FileData) => {
+  emit('file-click', file)
 }
 </script>
 
@@ -154,6 +154,7 @@ const handleFileClick = (path: string) => {
   .grid-item {
     min-width: 0;
     width: 100%;
+    height: 100%;
     // 每个项目根据自己的内容（横/竖/方）自动调整高度
   }
 }
