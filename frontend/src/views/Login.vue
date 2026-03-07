@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
-import { authApi } from '@/api'
+import { authApi, type AuthResponse } from '@/api'
 import {  useMessage } from 'naive-ui'
 
 const router = useRouter()
@@ -24,11 +24,19 @@ const handleLogin = async () => {
 
   loading.value = true
   try {
-    const res = await authApi.login(loginForm.value)
-    userStore.login(res.data.user, res.data.token)
+    debugger;
+    const res = await authApi.login(loginForm.value) as any as AuthResponse
+    debugger;
+    userStore.login(res.user, res.token)
     message.success('登录成功')
     router.push('/')
   } catch (error: any) {
+    console.error('登录错误详情:', error)
+    console.error('错误响应:', error.response)
+    console.error('错误状态码:', error.response?.status)
+    console.error('错误数据:', error.response?.data)
+    console.error('错误配置:', error.config)
+    console.error('错误请求:', error.request)
     message.error(error.response?.data?.message || '登录失败')
   } finally {
     loading.value = false

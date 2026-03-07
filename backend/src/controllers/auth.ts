@@ -9,7 +9,8 @@ const users = new Map()
 export const authController = {
   // 注册
   async register(ctx: Koa.Context) {
-    const { username, password } = ctx.request.body
+    const body = ctx.request.body as any
+    const { username, password } = body
     
     if (!username || !password) {
       ctx.status = 400
@@ -48,7 +49,8 @@ export const authController = {
   
   // 登录
   async login(ctx: Koa.Context) {
-    const { username, password } = ctx.request.body
+    const body = ctx.request.body as any
+    const { username, password } = body
     
     // 查找用户
     const user = users.get(username)
@@ -102,7 +104,7 @@ export const authController = {
   // 更新个人信息
   async updateProfile(ctx: Koa.Context) {
     const { username } = ctx.state.user
-    const updates = ctx.request.body
+    const updates = ctx.request.body as any
     
     const user = users.get(username)
     if (!user) {

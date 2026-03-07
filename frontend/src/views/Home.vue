@@ -3,11 +3,18 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 
+interface MediaItem {
+  id: number
+  title: string
+  cover: string
+  type: string
+}
+
 const router = useRouter()
 const userStore = useUserStore()
 
-const recentMedia = ref([])
-const continueWatching = ref([])
+const recentMedia = ref<MediaItem[]>([])
+const continueWatching = ref<MediaItem[]>([])
 
 // 模拟数据（后续替换为 API 调用）
 onMounted(() => {

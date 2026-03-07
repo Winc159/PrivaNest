@@ -1,4 +1,4 @@
-import Router from 'koa-router'
+import Router from '@koa/router'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { config } from '../config/index.js'
@@ -7,28 +7,35 @@ const router = new Router()
 
 // 模拟用户数据库（后续替换为真实数据库）
 const users = new Map()
+users.set('admin', {
+  id: '1',
+  username: 'admin',
+  password: await bcrypt.hash('admin123', 10),
+  createdAt: new Date()
+})
+
 
 // 注册
 router.post('/register', async (ctx) => {
   const body = ctx.request.body as { username?: string; password?: string }
   const { username, password } = body
-  
+
   if (!username || !password) {
     ctx.status = 400
     ctx.body = { message: '用户名和密码不能为空' }
     return
   }
-  
+
   // 检查用户是否已存在
   if (users.has(username)) {
     ctx.status = 400
     ctx.body = { message: '用户名已存在' }
     return
   }
-  
+
   // 密码加密
   const hashedPassword = await bcrypt.hash(password, 10)
-  
+
   // 保存用户
   const user = {
     id: Date.now().toString(),
@@ -36,9 +43,9 @@ router.post('/register', async (ctx) => {
     password: hashedPassword,
     createdAt: new Date()
   }
-  
+
   users.set(username, user)
-  
+
   ctx.body = {
     message: '注册成功',
     user: {
@@ -52,13 +59,13 @@ router.post('/register', async (ctx) => {
 router.post('/login', async (ctx) => {
   const body = ctx.request.body as { username?: string; password?: string }
   const { username, password } = body
-  
+
   if (!username || !password) {
     ctx.status = 400
     ctx.body = { message: '用户名和密码不能为空' }
     return
   }
-  
+
   // 查找用户
   const user = users.get(username)
   if (!user) {
@@ -66,7 +73,7 @@ router.post('/login', async (ctx) => {
     ctx.body = { message: '用户名或密码错误' }
     return
   }
-  
+
   // 验证密码
   const isValid = await bcrypt.compare(password, user.password)
   if (!isValid) {
@@ -74,14 +81,14 @@ router.post('/login', async (ctx) => {
     ctx.body = { message: '用户名或密码错误' }
     return
   }
-  
+
   // 生成 Token
   const token = jwt.sign(
     { id: user.id, username: user.username },
     config.jwtSecret,
     { expiresIn: '7d' }
   )
-  
+
   ctx.body = {
     message: '登录成功',
     token,
@@ -100,7 +107,7 @@ router.get('/profile', async (ctx) => {
     ctx.body = { message: '用户不存在' }
     return
   }
-  
+
   ctx.body = {
     id: user.id,
     username: user.username,
@@ -112,17 +119,17 @@ router.get('/profile', async (ctx) => {
 router.put('/profile', async (ctx) => {
   const { username } = ctx.state.user
   const updates = ctx.request.body
-  
+
   const user = users.get(username)
   if (!user) {
     ctx.status = 404
     ctx.body = { message: '用户不存在' }
     return
   }
-  
+
   Object.assign(user, updates)
   users.set(username, user)
-  
+
   ctx.body = {
     message: '更新成功',
     user: {

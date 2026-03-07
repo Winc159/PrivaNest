@@ -1,8 +1,10 @@
-import Router from 'koa-router'
-import {mediaController} from '../controllers/media.ts'
-import { upload } from '../middlewares/upload.ts'
+import Router from '@koa/router'
+import {mediaController} from '../controllers/media.js'
+import { upload } from '../middlewares/upload.js'
 
-const router = new Router()
+const router = new Router({
+  prefix: '/media'
+})
 
 router.get('/folders', mediaController.getFolders)
 router.get('/libraries', mediaController.getLibraryPaths)

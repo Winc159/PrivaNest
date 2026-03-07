@@ -19,10 +19,10 @@ export interface AuthResponse {
 
 // 用户相关 API
 export const authApi = {
-  login: (data: LoginData) => request.post<AuthResponse>('/auth/login', data),
-  register: (data: LoginData) => request.post<AuthResponse>('/auth/register', data),
-  getProfile: () => request.get<UserResponse>('/users/profile'),
-  updateProfile: (data: Partial<UserResponse>) => request.put<UserResponse>('/users/profile', data)
+  login: (data: LoginData): Promise<AuthResponse> => request.post('/auth/login', data) as Promise<AuthResponse>,
+  register: (data: LoginData): Promise<AuthResponse> => request.post('/auth/register', data) as Promise<AuthResponse>,
+  getProfile: (): Promise<UserResponse> => request.get('/users/profile') as Promise<UserResponse>,
+  updateProfile: (data: Partial<UserResponse>): Promise<UserResponse> => request.put('/users/profile', data) as Promise<UserResponse>
 }
 
 // 媒体库 API

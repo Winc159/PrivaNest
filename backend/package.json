@@ -8,7 +8,11 @@
     "dev": "tsx watch src/app.ts",
     "build": "tsc",
     "start": "node dist/app.js",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:reset": "tsx scripts/reset-db.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:test": "tsx scripts/test-db.ts"
   },
   "keywords": [
     "privanest",
@@ -20,26 +24,30 @@
   "license": "ISC",
   "dependencies": {
     "@koa/cors": "^5.0.0",
-    "@koa/multer": "^3.0.2",
-    "bcryptjs": "^3.0.0",
-    "dotenv": "^16.5.0",
-    "is-generator-function": "^1.1.2",
-    "jsonwebtoken": "^9.0.0",
-    "koa": "^2.16.0",
-    "koa-bodyparser": "^4.4.0",
-    "koa-router": "^13.0.0",
-    "multer": "^2.0.0"
+    "@koa/multer": "^3.1.0",
+    "@koa/router": "^15.3.1",
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.6.2",
+    "dotenv": "^16.6.1",
+    "jsonwebtoken": "^9.0.3",
+    "koa": "^3.0.0",
+    "koa-bodyparser": "^4.4.1",
+    "multer": "^2.1.1"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
-    "@types/jsonwebtoken": "^9.0.9",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/koa": "^2.15.0",
-    "@types/koa__cors": "^5.0.1",
-    "@types/koa__multer": "^2.0.7",
     "@types/koa-bodyparser": "^4.3.13",
-    "@types/koa-router": "^7.4.8",
-    "@types/node": "^22.15.0",
-    "tsx": "^4.19.4",
-    "typescript": "^5.8.0"
+    "@types/koa__cors": "^5.0.1",
+    "@types/koa__multer": "^2.0.8",
+    "@types/koa__router": "^12.0.5",
+    "@types/node": "^22.19.15",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

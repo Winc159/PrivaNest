@@ -4,7 +4,7 @@
   "description": "私人影院 Web 应用 - Vue 3 + Koa (TypeScript)",
   "type": "module",
   "scripts": {
-    "install:all": "cd frontend && npm install && cd ../backend && npm install",
+    "install:all": "pnpm install -r",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
@@ -22,6 +22,10 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "concurrently": "^9.1.2"
+  },
+  "dependencies": {
+    "is-generator-function": "^1.1.2"
   }
 }

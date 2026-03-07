@@ -3,12 +3,19 @@ import bodyParser from 'koa-bodyparser'
 import cors from '@koa/cors'
 import router from './routes/index.js'
 import { config } from './config/index.js'
+import { initDatabase } from './database/index.js'
 
 const app: Koa = new Koa()
+app.proxy = true;
 
+// 初始化数据库
+initDatabase().catch(err => {
+  console.error('Failed to initialize database:', err)
+  process.exit(1)
+})
 
 // 错误处理
-app.use(async (ctx, next) => {
+app.use(async (ctx: Koa.Context, next: () => Promise<any>) => {
   try {
     await next()
   } catch (error: any) {
@@ -25,14 +32,17 @@ app.use(async (ctx, next) => {
 app.use(cors()) // 跨域支持
 app.use(bodyParser()) // 请求体解析
 
-// 路由
+// 路由处理
 app.use(router.routes())
-app.use(router.allowedMethods())
+
+// 允许的 HTTP 方法
+if (router.allowedMethods) {
+  app.use(router.allowedMethods())
+}
 
 
 
 // 启动服务器
 app.listen(config.port, () => {
-  console.log(`🎬 PrivaNest Server running at http://localhost:${config.port}`)
-  console.log(`📁 开发模式：http://localhost:3000 (前端代理)`)
+  console.log(`Server running at http://localhost:${config.port}`)
 })
