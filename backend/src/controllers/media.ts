@@ -1,6 +1,75 @@
 import fs from 'fs/promises'
 import path from 'path'
+import crypto from 'crypto'
+import sharp from 'sharp'
 import { config } from '../config/index.js'
+
+// LRU 缓存配置
+interface LRUCacheOptions {
+  max: number // 最大缓存条目数
+  ttl?: number // 过期时间 (毫秒)
+}
+
+// LRU 缓存实现
+class LRUCache<T> {
+  private cache: Map<string, { value: T; timestamp: number }>
+  private max: number
+  private ttl: number
+
+  constructor(options: LRUCacheOptions) {
+    this.cache = new Map()
+    this.max = options.max
+    this.ttl = options.ttl || 5 * 60 * 1000 // 默认 5 分钟
+  }
+
+  get(key: string): T | undefined {
+    const item = this.cache.get(key)
+    if (!item) return undefined
+
+    // 检查是否过期
+    if (Date.now() - item.timestamp > this.ttl) {
+      this.cache.delete(key)
+      return undefined
+    }
+
+    // 更新访问时间 (LRU: 最近使用的移到末尾)
+    this.cache.delete(key)
+    this.cache.set(key, item)
+    return item.value
+  }
+
+  set(key: string, value: T): void {
+    // 如果已存在，先删除
+    if (this.cache.has(key)) {
+      this.cache.delete(key)
+    } else if (this.cache.size >= this.max) {
+      // 超出容量，删除最旧的 (第一个)
+      const firstKey = this.cache.keys().next().value
+      if (firstKey) {
+        this.cache.delete(firstKey)
+      }
+    }
+    this.cache.set(key, { value, timestamp: Date.now() })
+  }
+
+  delete(key: string): boolean {
+    return this.cache.delete(key)
+  }
+
+  clear(): void {
+    this.cache.clear()
+  }
+}
+
+// 创建目录缓存：最多 100 个目录，缓存 5 分钟
+const dirCache = new LRUCache<{
+  folders: any[]
+  files: any[]
+  timestamp: number
+}>({
+  max: 100,
+  ttl: 5 * 60 * 1000
+})
 
 // 模拟媒体数据库（后续替换为真实数据库）
 const mediaFiles = new Map()
@@ -17,15 +86,30 @@ export const mediaController = {
     }
   },
 
-  // 获取文件夹列表
+  // 获取文件夹列表（支持缓存和分页）
   async getFolders(ctx: any) {
     const requestedPath = Array.isArray(ctx.query.path) ? ctx.query.path[0] : (ctx.query.path || '/')
     const libraryIndex = parseInt(Array.isArray(ctx.query.library) ? ctx.query.library[0] : (ctx.query.library || '0'))
+
+    // 分页参数
+    const page = parseInt(ctx.query.page || '1')
+    const pageSize = parseInt(ctx.query.pageSize || '100')
+    const useCache = ctx.query.useCache !== 'false' // 默认启用缓存
 
     // 获取目标媒体库根路径
     const baseRoot = config.mediaPaths[libraryIndex] || config.mediaPaths[0]
 
     try {
+      // 验证媒体库路径是否配置
+      if (!baseRoot) {
+        ctx.status = 400
+        ctx.body = {
+          message: '未配置媒体库路径',
+          error: '请在 .env 文件中配置 MEDIA_PATHS 或通过 API 添加媒体库路径'
+        }
+        return
+      }
+
       // 构建完整路径
       const dirPath = requestedPath === '/'
         ? baseRoot
@@ -38,53 +122,108 @@ export const mediaController = {
         return
       }
 
-      // 读取目录内容
-      const items = await fs.readdir(dirPath, { withFileTypes: true })
+      // 检查目录是否存在
+      try {
+        await fs.access(dirPath)
+      } catch (accessError: any) {
+        ctx.status = 404
+        ctx.body = {
+          message: '目录不存在或无法访问',
+          error: accessError.message,
+          path: dirPath
+        }
+        return
+      }
 
-      const folders: any[] = []
-      const files: any[] = []
+      // 生成缓存键
+      const cacheKey = `${libraryIndex}:${requestedPath}`
 
-      for (const item of items) {
-        // 跳过隐藏文件
-        if (item.name.startsWith('.')) continue
+      // 尝试从缓存读取
+      let cachedData = null
+      if (useCache) {
+        cachedData = dirCache.get(cacheKey)
+      }
 
-        if (item.isDirectory()) {
-          folders.push({
-            id: `folder-${Date.now()}-${item.name}`,
-            name: item.name,
-            path: requestedPath === '/' ? `/${item.name}` : `${requestedPath}/${item.name}`,
-            type: 'folder',
-            library: libraryIndex
-          })
-        } else {
-          // 只返回视频文件和图片
-          const ext = path.extname(item.name).toLowerCase()
-          const isVideo = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.wmv'].includes(ext)
-          const isImage = ['.jpg', '.jpeg', '.png', '.gif'].includes(ext)
+      let folders: any[] = []
+      let files: any[] = []
+      let fromCache = false
 
-          if (isVideo || isImage) {
-            const stat = await fs.stat(path.join(dirPath, item.name))
-            files.push({
-              id: `file-${Date.now()}-${item.name}`,
+      if (cachedData) {
+        // 使用缓存数据
+        folders = cachedData.folders
+        files = cachedData.files
+        fromCache = true
+      } else {
+        // 读取目录内容
+        const items = await fs.readdir(dirPath, { withFileTypes: true })
+
+        for (const item of items) {
+          // 跳过隐藏文件
+          if (item.name.startsWith('.')) continue
+
+          if (item.isDirectory()) {
+            folders.push({
+              id: `folder-${Date.now()}-${item.name}`,
               name: item.name,
-              path: `${requestedPath === '/' ? '' : requestedPath}/${item.name}`,
-              size: formatFileSize(stat.size),
-              type: isVideo ? 'video' : 'image',
-              ext: ext,
+              path: requestedPath === '/' ? `/${item.name}` : `${requestedPath}/${item.name}`,
+              type: 'folder',
               library: libraryIndex
             })
+          } else {
+            // 只返回视频文件和图片
+            const ext = path.extname(item.name).toLowerCase()
+            const isVideo = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.wmv'].includes(ext)
+            const isImage = ['.jpg', '.jpeg', '.png', '.gif'].includes(ext)
+
+            if (isVideo || isImage) {
+              const stat = await fs.stat(path.join(dirPath, item.name))
+              const fullPath = requestedPath === '/' ? `/${item.name}` : `${requestedPath}/${item.name}`
+              files.push({
+                id: `file-${Date.now()}-${item.name}`,
+                name: item.name,
+                path: fullPath, // 相对路径用于显示
+                fullPath: fullPath, // 添加完整路径字段用于 API 请求
+                size: formatFileSize(stat.size),
+                type: isVideo ? 'video' : 'image',
+                ext: ext,
+                library: libraryIndex
+              })
+            }
           }
         }
+
+        // 存入缓存
+        if (useCache) {
+          dirCache.set(cacheKey, { folders, files, timestamp: Date.now() })
+        }
       }
+
+      // 应用分页
+      const totalFiles = files.length
+      const totalPages = Math.ceil(totalFiles / pageSize)
+      const startIndex = (page - 1) * pageSize
+      const endIndex = startIndex + pageSize
+
+      const paginatedFiles = files.slice(startIndex, endIndex)
+      const paginatedFolders = page === 1 ? folders : [] // 只在第一页返回文件夹
 
       ctx.body = {
         currentPath: requestedPath,
         library: libraryIndex,
         libraryName: path.basename(baseRoot),
-        folders,
-        files
+        folders: paginatedFolders,
+        files: paginatedFiles,
+        pagination: {
+          page,
+          pageSize,
+          totalItems: totalFiles,
+          totalPages,
+          hasMore: endIndex < totalFiles
+        },
+        fromCache
       }
     } catch (error: any) {
+      console.error('getFolders error:', error)
       ctx.status = 500
       ctx.body = {
         message: '读取目录失败',
@@ -210,6 +349,167 @@ export const mediaController = {
     ctx.body = {
       query,
       results
+    }
+  },
+
+  // 清除目录缓存（用于文件变更后手动刷新）
+  async clearCache(ctx: any) {
+    const { path: requestedPath, library } = ctx.query
+
+    if (requestedPath) {
+      // 清除特定路径的缓存
+      const cacheKey = `${library || '0'}:${requestedPath}`
+      dirCache.delete(cacheKey)
+      ctx.body = { message: '已清除指定路径缓存', path: requestedPath }
+    } else {
+      // 清除所有缓存
+      dirCache.clear()
+      ctx.body = { message: '已清除所有缓存' }
+    }
+  },
+
+  // 获取原始媒体文件（用于缩略图生成或预览）
+  async getFile(ctx: any) {
+    const filePath = Array.isArray(ctx.query.path) ? ctx.query.path[0] : (ctx.query.path as string)
+
+    try {
+      // 验证文件路径
+      if (!filePath) {
+        ctx.status = 400
+        ctx.body = { error: '缺少文件路径参数' }
+        return
+      }
+
+      // 解码 URL 编码的路径
+      const decodedPath = decodeURIComponent(filePath)
+
+      let resolvedPath: string | null = null
+
+      for (const root of config.mediaPaths) {
+        const candidatePath = path.join(root, decodedPath.startsWith('/') ? decodedPath.slice(1) : decodedPath)
+        try {
+          await fs.access(candidatePath)
+          resolvedPath = candidatePath
+          break
+        } catch {
+          // 文件不存在于这个媒体库，继续尝试下一个
+          continue
+        }
+      }
+
+      if (!resolvedPath) {
+        ctx.status = 404
+        ctx.body = { error: '文件不存在或无法访问' }
+        return
+      }
+
+      // 检查文件是否存在
+      await fs.access(resolvedPath)
+
+      // 读取文件并返回
+      const fileBuffer = await fs.readFile(resolvedPath)
+
+      // 设置 Content-Type
+      const ext = path.extname(resolvedPath).toLowerCase()
+      const mimeTypes: Record<string, string> = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.gif': 'image/gif',
+        '.webp': 'image/webp',
+        '.mp4': 'video/mp4',
+        '.mkv': 'video/x-matroska',
+        '.avi': 'video/x-msvideo',
+        '.mov': 'video/quicktime',
+        '.webm': 'video/webm'
+      }
+
+      ctx.type = mimeTypes[ext] || 'application/octet-stream'
+      ctx.set('Content-Disposition', `inline; filename="${path.basename(resolvedPath)}"`)
+      ctx.set('Cache-Control', 'public, max-age=86400') // 1 天缓存
+      ctx.body = fileBuffer
+    } catch (error) {
+      console.error('获取文件失败:', error)
+      ctx.status = 500
+      ctx.body = {
+        error: '获取文件失败',
+        details: (error as Error).message
+      }
+    }
+  },
+
+  // 获取视频/图片缩略图
+  async getThumbnail(ctx: any) {
+    const filePath = Array.isArray(ctx.query.path) ? ctx.query.path[0] : (ctx.query.path as string)
+
+    try {
+      // 验证文件路径
+      if (!filePath) {
+        ctx.status = 400
+        ctx.body = { error: '缺少文件路径参数' }
+        return
+      }
+
+      // 解码 URL 编码的路径
+      const decodedPath = decodeURIComponent(filePath)
+
+      // 安全检查：确保路径在媒体库范围内
+      const resolvedPath = path.resolve(decodedPath)
+      const isWithinLibrary = config.mediaPaths.some(root =>
+        resolvedPath.startsWith(path.resolve(root))
+      )
+
+      if (!isWithinLibrary) {
+        ctx.status = 403
+        ctx.body = { error: '禁止访问该文件路径' }
+        return
+      }
+
+      // 检查文件是否存在
+      await fs.access(resolvedPath)
+
+      // 生成 ETag 用于缓存验证
+      const stats = await fs.stat(resolvedPath)
+      const etag = crypto
+        .createHash('md5')
+        .update(`${resolvedPath}-${stats.mtimeMs}-${stats.size}`)
+        .digest('hex')
+
+      // 设置 HTTP 缓存头
+      ctx.set('ETag', etag)
+      ctx.set('Cache-Control', 'public, max-age=31536000') // 1 年
+
+      // 如果客户端有缓存，返回 304
+      if (ctx.fresh) {
+        ctx.status = 304
+        return
+      }
+
+      // 检查是否为图片文件
+      const ext = path.extname(resolvedPath).toLowerCase()
+      const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
+
+      if (imageExts.includes(ext)) {
+        // 图片文件：直接返回缩放后的版本
+        const thumbnail = await sharp(resolvedPath)
+          .resize(300, 200, { fit: 'cover', position: 'center' })
+          .jpeg({ quality: 80 })
+          .toBuffer()
+
+        ctx.type = 'image/jpeg'
+        ctx.body = thumbnail
+      } else {
+        // 视频文件或其他：返回默认图标（后续可扩展为生成视频截图）
+        ctx.status = 400
+        ctx.body = { error: '暂不支持该文件类型的缩略图生成' }
+      }
+    } catch (error) {
+      console.error('生成缩略图失败:', error)
+      ctx.status = 500
+      ctx.body = {
+        error: '生成缩略图失败',
+        details: (error as Error).message
+      }
     }
   }
 }

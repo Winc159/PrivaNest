@@ -16,7 +16,7 @@ const routes = [
   {
     path: '/library',
     name: 'Library',
-    component: () => import('@/views/Library.vue'),
+    component: () => import('@/views/Library/index.vue'),
     meta: { title: '媒体库', requiresAuth: true }
   },
   {

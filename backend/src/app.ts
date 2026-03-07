@@ -28,6 +28,23 @@ app.use(async (ctx: Koa.Context, next: () => Promise<any>) => {
   }
 })
 
+// 请求日志中间件（开发环境启用）
+if (process.env.NODE_ENV !== 'production') {
+  app.use(async (ctx: Koa.Context, next: () => Promise<any>) => {
+    const start = Date.now()
+    await next()
+    const ms = Date.now() - start
+    
+    // 只打印 API 请求，过滤静态资源和健康检查
+    if (ctx.path.startsWith('/api') && ctx.path !== '/api/health') {
+      const method = ctx.method.padEnd(6)
+      const status = ctx.status.toString().padEnd(3)
+      const path = ctx.path
+      console.log(`[${new Date().toISOString()}] ${method} ${path} -> ${status} (${ms}ms)`)
+    }
+  })
+}
+
 // 中间件
 app.use(cors()) // 跨域支持
 app.use(bodyParser()) // 请求体解析

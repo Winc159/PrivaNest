@@ -23,11 +23,9 @@ request.interceptors.request.use(
 // 响应拦截器 - 直接返回 response.data
 request.interceptors.response.use(
   <T = any>(response: AxiosResponse<T>): T => {
-    debugger;
-    return response.data as T
+    return response.data as unknown as T
   },
   (error: AxiosError) => {
-    debugger;
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
       window.location.href = '/login'
