@@ -412,14 +412,6 @@ export const mediaController = {
       // 构建完整路径
       const fullPath = path.join(baseRoot, requestedPath)
 
-      console.log('getFile request:', {
-        libraryIndex,
-        requestedPath,
-        baseRoot,
-        fullPath,
-        decoded: decodeURIComponent(requestedPath)
-      })
-
       // 安全验证
       if (!fullPath.startsWith(baseRoot)) {
         ctx.status = 403
