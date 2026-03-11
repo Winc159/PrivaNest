@@ -4,7 +4,7 @@ import { useMediaStore } from '@/stores/media'
 import { useRouter, useRoute } from 'vue-router'
 import { VideoPlayer } from '@videojs-player/vue'
 import 'video.js/dist/video-js.css'
-import { NModal, NButton, NIcon } from 'naive-ui'
+import { NModal, NButton, NIcon, NImageGroup } from 'naive-ui'
 import { CloseOutline } from '@vicons/ionicons5'
 import { useThumbnail } from '@/composables/useThumbnail'
 import { useFileNavigation } from '@/composables/useFileNavigation'
@@ -37,6 +37,11 @@ const isPlaying = ref(false)
 // 图片预览相关状态
 const showImagePreview = ref(false)
 const currentImageFile = ref<FileData | null>(null)
+const imageList = ref<FileData[]>([]) // 当前目录所有图片
+const currentImageIndex = ref(0) // 当前图片索引
+
+// 动态注入全局遮罩样式
+let styleElement: HTMLStyleElement | null = null
 
 // 获取播放器实例
 const getPlayer = () => {
@@ -66,28 +71,18 @@ const currentVideoUrl = computed(() => {
   return url
 })
 
-// 当前预览的图片 URL
-const currentImageUrl = computed(() => {
-  if (!currentImageFile.value) return ''
-  
-  // 确保路径以 / 开头
-  let filePath = currentImageFile.value.path
-  if (!filePath.startsWith('/')) {
-    filePath = '/' + filePath
-  }
-  
-  const url = `/api/media/file?library=${currentLibrary.value}&path=${encodeURIComponent(filePath)}`
-  
-  console.log('🖼️ 构建图片 URL:', {
-    fileName: currentImageFile.value.name,
-    originalPath: currentImageFile.value.path,
-    normalizedPath: filePath,
-    library: currentLibrary.value,
-    finalUrl: url
+// 所有图片的 URL 列表（用于 NImageGroup）
+const imageSrcList = computed(() => {
+  return imageList.value.map(file => {
+    let filePath = file.path
+    if (!filePath.startsWith('/')) {
+      filePath = '/' + filePath
+    }
+    return `/api/media/file?library=${currentLibrary.value}&path=${encodeURIComponent(filePath)}`
   })
-  
-  return url
 })
+
+
 
 // 获取视频文件的扩展名
 const getVideoExtension = () => {
@@ -175,6 +170,21 @@ onMounted(async () => {
   
   // 添加键盘事件监听
   window.addEventListener('keydown', handleKeydown)
+  
+  // 添加全局滚轮事件监听（用于图片预览切换）
+  window.addEventListener('wheel', handleGlobalWheel, { passive: false })
+  
+  // 动态注入全局遮罩样式到 head
+  styleElement = document.createElement('style')
+  styleElement.id = 'image-preview-mask-style'
+  styleElement.textContent = `
+    .n-image-preview-container,
+    .n-modal-mask,
+    .n-image-group-modal {
+      background-color: rgba(0, 0, 0, 0.95) !important;
+    }
+  `
+  document.head.appendChild(styleElement)
 })
 
 // 监听路由参数变化，当 URL 中的 path 改变时重新加载文件夹
@@ -200,10 +210,10 @@ const handleKeydown = (e: KeyboardEvent) => {
   if (showFullscreenPlayer.value && e.code === 'Escape') {
     closePlayer()
   }
-  // 如果图片预览打开且按下 ESC 键
-  if (showImagePreview.value && e.code === 'Escape') {
-    closeImagePreview()
-  }
+  
+  // 如果图片预览打开，使用 NImageGroup 内置的快捷键
+  // NImageGroup 已经支持：ESC 关闭、左右箭头切换、Ctrl+ 滚轮缩放
+  // 我们只需要确保焦点在图片组上即可
 }
 
 // 事件处理函数
@@ -218,25 +228,27 @@ const handleFolderClick = (path: string) => {
 const handleFileClick = (file: FileData) => {
   // 如果是视频文件，打开全屏播放器
   if (file.type === 'video') {
-    console.log('🎬 点击视频文件:', {
-      name: file.name,
-      path: file.path,
-      fullPath: file.fullPath,
-      ext: file.ext,
-      type: file.type,
-      currentPath: mediaStore.currentPath,
-      library: currentLibrary.value
-    })
-    
     currentVideoFile.value = file
     showFullscreenPlayer.value = true
   } else if (file.type === 'image') {
-    // 如果是图片文件，打开预览 Modal
+    // 如果是图片文件，设置当前预览图片并收集所有图片用于切换
     currentImageFile.value = file
+    
+    // 获取当前目录下的所有图片
+    imageList.value = mediaStore.files.filter(f => f.type === 'image')
+    const foundIndex = imageList.value.findIndex(f => f.id === file.id)
+    
+    if (foundIndex === -1) {
+      // 如果找不到当前图片，将其添加到列表
+      currentImageIndex.value = 0
+      imageList.value = [file]
+    } else {
+      currentImageIndex.value = foundIndex
+    }
+    
     showImagePreview.value = true
   } else {
     // 文件夹等其他类型
-    console.log('点击文件:', file)
   }
 }
 
@@ -261,11 +273,71 @@ const closePlayer = () => {
 const closeImagePreview = () => {
   showImagePreview.value = false
   currentImageFile.value = null
+  imageList.value = []
+  currentImageIndex.value = 0
+}
+
+// 处理显示状态变化
+const handleUpdateShow = (show: boolean) => {
+  if (!show) {
+    closeImagePreview()
+  }
+}
+
+// 处理当前索引变化
+const handleUpdateCurrent = (index: number) => {
+  currentImageIndex.value = index
+  if (imageList.value[index]) {
+    currentImageFile.value = imageList.value[index]
+  }
+}
+
+// 上一张图片
+const prevImage = () => {
+  if (imageList.value.length === 0) return
+  currentImageIndex.value = (currentImageIndex.value - 1 + imageList.value.length) % imageList.value.length
+  currentImageFile.value = imageList.value[currentImageIndex.value]
+}
+
+// 下一张图片
+const nextImage = () => {
+  if (imageList.value.length === 0) return
+  currentImageIndex.value = (currentImageIndex.value + 1) % imageList.value.length
+  currentImageFile.value = imageList.value[currentImageIndex.value]
+}
+
+// 滚轮切换图片（使用全局监听）
+let scrollTimeout: ReturnType<typeof setTimeout> | null = null
+const handleGlobalWheel = (e: WheelEvent) => {
+  // 只有在图片预览打开时才响应
+  if (!showImagePreview.value) return
+  
+  // 防止过于频繁的触发
+  if (scrollTimeout) return
+  
+  const delta = Math.abs(e.deltaY || e.deltaX)
+  
+  // 设置阈值，避免误触
+  if (delta < 3) return
+  
+  // 根据滚动方向切换图片
+  if (e.deltaY > 3 || e.deltaX > 0) {
+    nextImage()
+  }
+  if (e.deltaY < -3 || e.deltaX < 0) {
+    prevImage()
+  } else {
+    return
+  }
+  
+  // 设置防抖间隔（150ms）
+  scrollTimeout = setTimeout(() => {
+    scrollTimeout = null
+  }, 150)
 }
 
 // 播放器就绪事件
 const onPlayerReady = (player: any) => {
-  console.log('🎬 播放器就绪')
   playerRef.value = player
   
   // 恢复上次播放进度
@@ -274,21 +346,18 @@ const onPlayerReady = (player: any) => {
 
 // 播放事件
 const onPlay = () => {
-  console.log('▶️ 开始播放')
   isPlaying.value = true
   saveProgress()
 }
 
 // 暂停事件
 const onPause = () => {
-  console.log('⏸️ 暂停播放')
   isPlaying.value = false
   saveProgress()
 }
 
 // 播放结束事件
 const onEnded = () => {
-  console.log('✅ 播放结束')
   clearProgress()
   closePlayer()
 }
@@ -338,10 +407,9 @@ const restoreProgress = () => {
       // 如果距离上次观看不超过 24 小时，恢复进度
       if (Date.now() - progress.timestamp < 24 * 60 * 60 * 1000) {
         player.currentTime(progress.currentTime)
-        console.log('📼 恢复播放进度:', progress.currentTime)
       }
     } catch (e) {
-      console.error('恢复进度失败:', e)
+      // 恢复进度失败，使用默认行为
     }
   }
 }
@@ -370,6 +438,13 @@ const handleUploadSuccess = () => {
 onUnmounted(() => {
   // 清理事件监听
   window.removeEventListener('keydown', handleKeydown)
+  window.removeEventListener('wheel', handleGlobalWheel)
+  
+  // 清理动态注入的遮罩样式
+  if (styleElement) {
+    document.head.removeChild(styleElement)
+    styleElement = null
+  }
   
   // 清理播放器
   const player = getPlayer()
@@ -418,7 +493,7 @@ onUnmounted(() => {
     />
     
     <!-- 全屏播放器 Modal -->
-    <NModal
+    <n-modal
       v-model:show="showFullscreenPlayer"
       :close-on-esc="false"
       :mask-closable="false"
@@ -453,37 +528,22 @@ onUnmounted(() => {
           style="width: 100%; height: 100%; max-height: calc(100vh - 73px);"
         />
       </div>
-    </NModal>
+    </n-modal>
 
-    <!-- 图片预览 Modal -->
-    <NModal
+    <!-- 图片预览使用 NImageGroup -->
+    <n-image-group
+      ref="imageGroupRef"
       v-model:show="showImagePreview"
-      :close-on-esc="true"
+      v-model:current="currentImageIndex"
+      :on-update:show="handleUpdateShow"
+      :src-list="imageSrcList"
+      :default-zoom="1"
+      :min-zoom="0.5"
+      :max-zoom="5"
+      :infinite="true"
       :mask-closable="true"
-      preset="card"
-      block-scroll
-      style="width: 100vw; height: 100vh; max-width: 100%; max-height: 100%;"
-      content-style="padding: 0; background: rgba(0, 0, 0, 0.9); height: 100%;"
-      header-style="display: none;"
-      :closable="false"
-    >
-      <div style="position: absolute; top: 20px; right: 20px; z-index: 1000;">
-        <n-button quaternary circle @click="closeImagePreview" style="color: #fff; background: rgba(255, 255, 255, 0.1);">
-          <template #icon>
-            <n-icon :component="CloseOutline" size="24" />
-          </template>
-        </n-button>
-      </div>
-      
-      <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: hidden;">
-        <img
-          v-show="showImagePreview && currentImageUrl"
-          :src="currentImageUrl"
-          :alt="currentImageFile?.name || '图片预览'"
-          style="display: block; max-width: 100%; max-height: 100%; object-fit: contain; margin: auto;"
-        />
-      </div>
-    </NModal>
+      @update:current="handleUpdateCurrent"
+    />
   </div>
 </template>
 
@@ -494,4 +554,5 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
 }
+
 </style>

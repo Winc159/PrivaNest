@@ -34,37 +34,21 @@ export function useThumbnail() {
   const getThumbnailUrl = (file: any): string | null => {
     const sizeBytes = parseFileSize(file.size || '0 B')
 
-    console.log('🔍 getThumbnailUrl:', {
-      name: file.name,
-      size: file.size,
-      sizeBytes,
-      ext: file.ext,
-      isImage: isImageFile(file),
-      isVideo: isVideoFile(file)
-    })
-
     // 1. 小图片（<500KB）：直接返回原图路径，用 CSS 缩放
     if (isImageFile(file) && sizeBytes < 500 * 1024) {
-      const url = `/api/media/file?path=${encodeURIComponent(file.fullPath || file.path)}`
-      console.log('✅ 小图片，返回 URL:', url)
-      return url
+      return `/api/media/file?path=${encodeURIComponent(file.fullPath || file.path)}`
     }
 
     // 2. 大图片（>=500KB）：使用 Canvas 前端压缩
     if (isImageFile(file) && sizeBytes >= 500 * 1024) {
-      const canvasUrl = `canvas:${encodeURIComponent(file.fullPath || file.path)}`
-      console.log('🎨 大图片，返回 Canvas URL:', canvasUrl)
-      return canvasUrl
+      return `canvas:${encodeURIComponent(file.fullPath || file.path)}`
     }
 
     // 3. 视频文件：统一使用 Canvas 前端生成封面
     if (isVideoFile(file)) {
-      const canvasUrl = `canvas:${encodeURIComponent(file.fullPath || file.path)}`
-      console.log('🎬 视频文件，返回 Canvas URL:', canvasUrl)
-      return canvasUrl
+      return `canvas:${encodeURIComponent(file.fullPath || file.path)}`
     }
 
-    console.log('⚠️ 其他类型，返回 null')
     return null
   }
 
@@ -89,18 +73,7 @@ export function useThumbnail() {
         await generateImageThumbnail(canvas, src)
       }
     } catch (error) {
-      console.error('缩略图生成失败:', error)
-
-      // 加载失败时显示灰色背景
-      const ctx = canvas.getContext('2d')
-      if (ctx) {
-        ctx.fillStyle = '#f0f0f0'
-        ctx.fillRect(0, 0, canvas.width || 300, canvas.height || 300)
-        ctx.fillStyle = '#999'
-        ctx.font = '14px Arial'
-        ctx.textAlign = 'center'
-        ctx.fillText('加载失败', (canvas.width || 300) / 2, (canvas.height || 300) / 2)
-      }
+      throw error
     }
   }
 
@@ -113,7 +86,6 @@ export function useThumbnail() {
       await new Promise((resolve, reject) => {
         img.onload = resolve
         img.onerror = () => {
-          console.error(`图片加载失败：${src}`)
           reject(new Error(`图片加载失败：${src}`))
         }
         img.src = src
@@ -155,7 +127,6 @@ export function useThumbnail() {
         ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
       }
     } catch (error) {
-      console.error('图片缩略图生成失败:', error)
       throw error
     }
   }
@@ -163,8 +134,6 @@ export function useThumbnail() {
   // 视频封面生成（前端 Canvas 抽取帧）
   const generateVideoThumbnail = async (canvas: HTMLCanvasElement, src: string) => {
     try {
-      console.log('🎬 开始生成视频封面:', src)
-
       // 创建隐藏的 video 元素
       const video = document.createElement('video')
       video.crossOrigin = 'anonymous'
@@ -176,8 +145,6 @@ export function useThumbnail() {
 
         // 视频加载成功
         video.addEventListener('loadeddata', () => {
-          console.log('✅ 视频加载成功，时长:', video.duration)
-
           // 计算截图时间点：第 1 秒或视频时长的 1/3，取较小值
           const targetTime = Math.min(1, Math.max(0.1, (video.duration || 1) / 3))
           video.currentTime = targetTime
@@ -221,40 +188,35 @@ export function useThumbnail() {
         video.addEventListener('seeked', () => {
           if (hasResolved) return
           hasResolved = true
-          
+
           try {
-            console.log('⏩ 已跳转到时间点:', video.currentTime)
-            
             const ctx = canvas.getContext('2d')
             if (ctx) {
               // 清空画布（透明背景）
               ctx.clearRect(0, 0, canvas.width, canvas.height)
-              
+
               // 绘制视频帧（保持比例，居中显示）
               const scale = Math.min(canvas.width / video.videoWidth, canvas.height / video.videoHeight)
               const drawWidth = video.videoWidth * scale
               const drawHeight = video.videoHeight * scale
               const drawX = (canvas.width - drawWidth) / 2
               const drawY = (canvas.height - drawHeight) / 2
-              
+
               ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight)
             }
-            
-            console.log('✅ 视频封面生成成功')
+
             resolve()
           } catch (drawError) {
-            console.error('❌ 绘制失败:', drawError)
             showVideoPlaceholder(canvas)
             resolve()
           }
         })
 
         // 错误处理
-        video.addEventListener('error', (e) => {
+        video.addEventListener('error', () => {
           if (hasResolved) return
           hasResolved = true
 
-          console.warn('❌ 视频加载失败:', src, e)
           showVideoPlaceholder(canvas)
           resolve()
         })
@@ -262,7 +224,6 @@ export function useThumbnail() {
         // 超时保护（10 秒）
         setTimeout(() => {
           if (!hasResolved) {
-            console.warn('⏰ 视频加载超时:', src)
             hasResolved = true
             showVideoPlaceholder(canvas)
             resolve()
@@ -273,7 +234,6 @@ export function useThumbnail() {
         video.src = src
       })
     } catch (error) {
-      console.error('❌ 视频封面生成异常:', error)
       showVideoPlaceholder(canvas)
     }
   }
@@ -306,8 +266,6 @@ export function useThumbnail() {
     ctx.beginPath()
     ctx.arc(centerX, centerY, size * 0.8, 0, Math.PI * 2)
     ctx.stroke()
-
-    console.log('📺 显示视频占位图标')
   }
 
   // 监听 Canvas 元素渲染
