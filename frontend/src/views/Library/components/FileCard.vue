@@ -40,17 +40,10 @@ watch(() => canvasRef.value?.dataset.orientation, (newOrientation) => {
   if (newOrientation) {
     imageOrientation.value = newOrientation as 'landscape' | 'portrait' | 'square'
     imageLoaded.value = true
-    console.log('📐 Canvas 方向:', imageOrientation.value)
   }
 }, { immediate: true })
 
 const handleClick = () => {
-  console.log('📦 文件信息:', {
-    name: props.file.name,
-    orientation: imageOrientation.value,
-    isFolder: props.isFolder,
-    isVideoFile: isVideoFile.value
-  })
   emit('click', props.file)
 }
 
@@ -85,13 +78,6 @@ const updateImageOrientation = (width: number, height: number) => {
     imageOrientation.value = 'square'
     imageFit.value = 'cover'
   }
-  
-  console.log('🖼️ 图片方向检测:', {
-    width,
-    height,
-    aspectRatio: aspectRatio.toFixed(2),
-    orientation: imageOrientation.value
-  })
 }
 
 // 判断是否为视频文件
@@ -114,8 +100,6 @@ const generateVideoThumbnail = async () => {
   if (!videoCanvasRef.value || !isVideoFile.value || videoThumbnailGenerated.value) return
   
   try {
-    console.log('🎬 开始生成视频封面:', props.file.name)
-    
     // 创建隐藏的 video 元素
     const video = document.createElement('video')
     video.crossOrigin = 'anonymous'
@@ -131,7 +115,7 @@ const generateVideoThumbnail = async () => {
     const ctx = canvas.getContext('2d', { alpha: false })
     
     if (!ctx) {
-      console.warn('❌ Canvas context not available')
+      console.error('Canvas context not available')
       return
     }
     
@@ -140,25 +124,13 @@ const generateVideoThumbnail = async () => {
       
       // 视频加载成功
       video.addEventListener('loadeddata', () => {
-        console.log('✅ 视频加载成功，时长:', video.duration)
-        
         // 计算截图时间点：第 1 秒或视频时长的 1/3，取较小值
         const targetTime = Math.min(1, Math.max(0.1, (video.duration || 1) / 3))
         video.currentTime = targetTime
         
-        // 检测视频方向并设置 Canvas 尺寸（统一为 4:3 比例）
-        const videoWidth = video.videoWidth || 400
-        const videoHeight = video.videoHeight || 300
-        
         // 统一设置为 4:3 比例的 Canvas
         canvas.width = 400
         canvas.height = 300
-        
-        console.log('📐 视频方向:', {
-          originalSize: `${videoWidth}x${videoHeight}`,
-          canvasSize: `${canvas.width}x${canvas.height}`,
-          orientation: '4:3'
-        })
         
         // 填充黑色背景
         ctx.fillStyle = '#000000'
@@ -177,29 +149,26 @@ const generateVideoThumbnail = async () => {
         hasResolved = true
         
         try {
-          console.log('⏩ 已跳转到时间点:', video.currentTime)
-          
           // 绘制视频帧到 Canvas
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
           
           // 标记为已生成
           videoThumbnailGenerated.value = true
           
-          console.log('✅ 视频封面生成成功:', props.file.name)
           resolve()
         } catch (drawError) {
-          console.error('❌ 绘制失败:', drawError)
+          console.error('Failed to draw video frame:', drawError)
           showVideoPlaceholder(ctx)
           resolve()
         }
       })
       
       // 错误处理
-      video.addEventListener('error', (e) => {
+      video.addEventListener('error', () => {
         if (hasResolved) return
         hasResolved = true
         
-        console.warn('❌ 视频加载失败:', props.file.name, e)
+        console.warn('Failed to load video:', props.file.name)
         
         if (ctx) {
           showVideoPlaceholder(ctx)
@@ -212,7 +181,7 @@ const generateVideoThumbnail = async () => {
       // 超时保护（10 秒）
       setTimeout(() => {
         if (!hasResolved) {
-          console.warn('⏰ 视频加载超时:', props.file.name)
+          console.warn('Video loading timeout:', props.file.name)
           hasResolved = true
           
           if (ctx) {
@@ -228,7 +197,7 @@ const generateVideoThumbnail = async () => {
       video.src = videoUrl
     })
   } catch (error) {
-    console.error('❌ 视频封面生成异常:', props.file.name, error)
+    console.error('Error generating video thumbnail:', props.file.name, error)
   }
 }
 
@@ -259,8 +228,6 @@ const showVideoPlaceholder = (ctx: CanvasRenderingContext2D) => {
   ctx.beginPath()
   ctx.arc(centerX, centerY, size * 0.8, 0, Math.PI * 2)
   ctx.stroke()
-  
-  console.log('📺 显示视频占位图标')
 }
 
 // 组件挂载后生成视频封面
@@ -309,17 +276,17 @@ onMounted(() => {
         
         <!-- NImage 组件加载小图片 -->
         <n-image
-          v-else-if="thumbnailUrl"
-          :src="thumbnailUrl!"
+          v-else-if="thumbnailUrl && !thumbnailUrl.startsWith('canvas:')"
+          :src="thumbnailUrl"
           :alt="file.name"
           class="media-thumbnail"
           :object-fit="imageFit"
-          show-toolbar-tooltip
           @load="handleImageLoad"
+          preview-disabled
         />
         
         <!-- 降级：显示图标（仅在 Canvas 生成失败时） -->
-        <n-icon v-else-if="isVideoFile" class="video-icon" size="64" color="#18a058">
+        <n-icon v-else-if="isVideoFile && !shouldGenerateThumbnail" class="video-icon" size="64" color="#18a058">
           <VideocamOutline />
         </n-icon>
       </div>

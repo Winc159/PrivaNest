@@ -34,6 +34,10 @@ const currentTime = ref(0)
 const duration = ref(0)
 const isPlaying = ref(false)
 
+// 图片预览相关状态
+const showImagePreview = ref(false)
+const currentImageFile = ref<FileData | null>(null)
+
 // 获取播放器实例
 const getPlayer = () => {
   return playerRef.value?.player || playerRef.value
@@ -54,6 +58,29 @@ const currentVideoUrl = computed(() => {
   console.log('📺 构建视频 URL:', {
     fileName: currentVideoFile.value.name,
     originalPath: currentVideoFile.value.path,
+    normalizedPath: filePath,
+    library: currentLibrary.value,
+    finalUrl: url
+  })
+  
+  return url
+})
+
+// 当前预览的图片 URL
+const currentImageUrl = computed(() => {
+  if (!currentImageFile.value) return ''
+  
+  // 确保路径以 / 开头
+  let filePath = currentImageFile.value.path
+  if (!filePath.startsWith('/')) {
+    filePath = '/' + filePath
+  }
+  
+  const url = `/api/media/file?library=${currentLibrary.value}&path=${encodeURIComponent(filePath)}`
+  
+  console.log('🖼️ 构建图片 URL:', {
+    fileName: currentImageFile.value.name,
+    originalPath: currentImageFile.value.path,
     normalizedPath: filePath,
     library: currentLibrary.value,
     finalUrl: url
@@ -173,6 +200,10 @@ const handleKeydown = (e: KeyboardEvent) => {
   if (showFullscreenPlayer.value && e.code === 'Escape') {
     closePlayer()
   }
+  // 如果图片预览打开且按下 ESC 键
+  if (showImagePreview.value && e.code === 'Escape') {
+    closeImagePreview()
+  }
 }
 
 // 事件处理函数
@@ -199,8 +230,12 @@ const handleFileClick = (file: FileData) => {
     
     currentVideoFile.value = file
     showFullscreenPlayer.value = true
+  } else if (file.type === 'image') {
+    // 如果是图片文件，打开预览 Modal
+    currentImageFile.value = file
+    showImagePreview.value = true
   } else {
-    // 图片文件暂时只输出日志，后续可实现预览
+    // 文件夹等其他类型
     console.log('点击文件:', file)
   }
 }
@@ -220,6 +255,12 @@ const closePlayer = () => {
   showFullscreenPlayer.value = false
   currentVideoFile.value = null
   playerRef.value = null
+}
+
+// 关闭图片预览
+const closeImagePreview = () => {
+  showImagePreview.value = false
+  currentImageFile.value = null
 }
 
 // 播放器就绪事件
@@ -377,7 +418,7 @@ onUnmounted(() => {
     />
     
     <!-- 全屏播放器 Modal -->
-    <n-modal
+    <NModal
       v-model:show="showFullscreenPlayer"
       :close-on-esc="false"
       :mask-closable="false"
@@ -412,7 +453,37 @@ onUnmounted(() => {
           style="width: 100%; height: 100%; max-height: calc(100vh - 73px);"
         />
       </div>
-    </n-modal>
+    </NModal>
+
+    <!-- 图片预览 Modal -->
+    <NModal
+      v-model:show="showImagePreview"
+      :close-on-esc="true"
+      :mask-closable="true"
+      preset="card"
+      block-scroll
+      style="width: 100vw; height: 100vh; max-width: 100%; max-height: 100%;"
+      content-style="padding: 0; background: rgba(0, 0, 0, 0.9); height: 100%;"
+      header-style="display: none;"
+      :closable="false"
+    >
+      <div style="position: absolute; top: 20px; right: 20px; z-index: 1000;">
+        <n-button quaternary circle @click="closeImagePreview" style="color: #fff; background: rgba(255, 255, 255, 0.1);">
+          <template #icon>
+            <n-icon :component="CloseOutline" size="24" />
+          </template>
+        </n-button>
+      </div>
+      
+      <div style="width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; box-sizing: border-box; overflow: hidden;">
+        <img
+          v-show="showImagePreview && currentImageUrl"
+          :src="currentImageUrl"
+          :alt="currentImageFile?.name || '图片预览'"
+          style="display: block; max-width: 100%; max-height: 100%; object-fit: contain; margin: auto;"
+        />
+      </div>
+    </NModal>
   </div>
 </template>
 

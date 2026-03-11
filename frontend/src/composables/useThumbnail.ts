@@ -10,14 +10,16 @@ export function useThumbnail() {
 
   // 判断是否为图片文件
   const isImageFile = (file: any) => {
-    const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
-    return imageExts.some(ext => file.ext?.toLowerCase() === ext)
+    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif']
+    const ext = file.ext?.toLowerCase().replace('.', '')
+    return imageExts.includes(ext)
   }
 
   // 判断是否为视频文件
   const isVideoFile = (file: any) => {
-    const videoExts = ['.mp4', '.avi', '.mkv', '.mov', '.wmv', '.flv']
-    return videoExts.some(ext => file.ext?.toLowerCase() === ext)
+    const videoExts = ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm']
+    const ext = file.ext?.toLowerCase().replace('.', '')
+    return videoExts.includes(ext)
   }
 
   // 解析文件大小字符串
@@ -32,21 +34,37 @@ export function useThumbnail() {
   const getThumbnailUrl = (file: any): string | null => {
     const sizeBytes = parseFileSize(file.size || '0 B')
 
+    console.log('🔍 getThumbnailUrl:', {
+      name: file.name,
+      size: file.size,
+      sizeBytes,
+      ext: file.ext,
+      isImage: isImageFile(file),
+      isVideo: isVideoFile(file)
+    })
+
     // 1. 小图片（<500KB）：直接返回原图路径，用 CSS 缩放
     if (isImageFile(file) && sizeBytes < 500 * 1024) {
-      return `/api/media/file?path=${encodeURIComponent(file.fullPath || file.path)}`
+      const url = `/api/media/file?path=${encodeURIComponent(file.fullPath || file.path)}`
+      console.log('✅ 小图片，返回 URL:', url)
+      return url
     }
 
     // 2. 大图片（>=500KB）：使用 Canvas 前端压缩
     if (isImageFile(file) && sizeBytes >= 500 * 1024) {
-      return `canvas:${encodeURIComponent(file.fullPath || file.path)}`
+      const canvasUrl = `canvas:${encodeURIComponent(file.fullPath || file.path)}`
+      console.log('🎨 大图片，返回 Canvas URL:', canvasUrl)
+      return canvasUrl
     }
 
     // 3. 视频文件：统一使用 Canvas 前端生成封面
     if (isVideoFile(file)) {
-      return `canvas:${encodeURIComponent(file.fullPath || file.path)}`
+      const canvasUrl = `canvas:${encodeURIComponent(file.fullPath || file.path)}`
+      console.log('🎬 视频文件，返回 Canvas URL:', canvasUrl)
+      return canvasUrl
     }
 
+    console.log('⚠️ 其他类型，返回 null')
     return null
   }
 
