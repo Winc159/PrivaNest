@@ -32,6 +32,8 @@ const emit = defineEmits<{
 }>()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const videoCanvasRef = ref<HTMLCanvasElement | null>(null)
+const videoThumbnailGenerated = ref(false)
 
 // 监听 Canvas 数据属性变化
 watch(() => canvasRef.value?.dataset.orientation, (newOrientation) => {
@@ -100,6 +102,183 @@ const isVideoFile = computed(() => {
   return cleanExt && ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm'].includes(cleanExt)
 })
 
+// 获取视频文件 URL
+const getVideoFileUrl = computed(() => {
+  if (!isVideoFile.value) return null
+  const filePath = props.file.fullPath || props.file.path
+  return `/api/media/file?path=${encodeURIComponent(filePath)}`
+})
+
+// 前端 Canvas 抽取视频封面（无需 FFmpeg）
+const generateVideoThumbnail = async () => {
+  if (!videoCanvasRef.value || !isVideoFile.value || videoThumbnailGenerated.value) return
+  
+  try {
+    console.log('🎬 开始生成视频封面:', props.file.name)
+    
+    // 创建隐藏的 video 元素
+    const video = document.createElement('video')
+    video.crossOrigin = 'anonymous'
+    video.preload = 'metadata'
+    video.muted = true
+    
+    // 获取视频文件 URL
+    const videoUrl = getVideoFileUrl.value
+    if (!videoUrl) return
+    
+    // 创建 Canvas
+    const canvas = videoCanvasRef.value
+    const ctx = canvas.getContext('2d', { alpha: false })
+    
+    if (!ctx) {
+      console.warn('❌ Canvas context not available')
+      return
+    }
+    
+    return new Promise<void>((resolve) => {
+      let hasResolved = false
+      
+      // 视频加载成功
+      video.addEventListener('loadeddata', () => {
+        console.log('✅ 视频加载成功，时长:', video.duration)
+        
+        // 计算截图时间点：第 1 秒或视频时长的 1/3，取较小值
+        const targetTime = Math.min(1, Math.max(0.1, (video.duration || 1) / 3))
+        video.currentTime = targetTime
+        
+        // 检测视频方向并设置 Canvas 尺寸（统一为 4:3 比例）
+        const videoWidth = video.videoWidth || 400
+        const videoHeight = video.videoHeight || 300
+        
+        // 统一设置为 4:3 比例的 Canvas
+        canvas.width = 400
+        canvas.height = 300
+        
+        console.log('📐 视频方向:', {
+          originalSize: `${videoWidth}x${videoHeight}`,
+          canvasSize: `${canvas.width}x${canvas.height}`,
+          orientation: '4:3'
+        })
+        
+        // 填充黑色背景
+        ctx.fillStyle = '#000000'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+        
+        // 绘制加载提示
+        ctx.fillStyle = '#666'
+        ctx.font = '12px Arial'
+        ctx.textAlign = 'center'
+        ctx.fillText('Loading...', canvas.width / 2, canvas.height / 2)
+      })
+      
+      // 跳转到指定时间点
+      video.addEventListener('seeked', () => {
+        if (hasResolved) return
+        hasResolved = true
+        
+        try {
+          console.log('⏩ 已跳转到时间点:', video.currentTime)
+          
+          // 绘制视频帧到 Canvas
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          
+          // 标记为已生成
+          videoThumbnailGenerated.value = true
+          
+          console.log('✅ 视频封面生成成功:', props.file.name)
+          resolve()
+        } catch (drawError) {
+          console.error('❌ 绘制失败:', drawError)
+          showVideoPlaceholder(ctx)
+          resolve()
+        }
+      })
+      
+      // 错误处理
+      video.addEventListener('error', (e) => {
+        if (hasResolved) return
+        hasResolved = true
+        
+        console.warn('❌ 视频加载失败:', props.file.name, e)
+        
+        if (ctx) {
+          showVideoPlaceholder(ctx)
+        }
+        
+        videoThumbnailGenerated.value = true
+        resolve()
+      })
+      
+      // 超时保护（10 秒）
+      setTimeout(() => {
+        if (!hasResolved) {
+          console.warn('⏰ 视频加载超时:', props.file.name)
+          hasResolved = true
+          
+          if (ctx) {
+            showVideoPlaceholder(ctx)
+          }
+          
+          videoThumbnailGenerated.value = true
+          resolve()
+        }
+      }, 10000)
+      
+      // 开始加载视频
+      video.src = videoUrl
+    })
+  } catch (error) {
+    console.error('❌ 视频封面生成异常:', props.file.name, error)
+  }
+}
+
+// 显示视频占位图标
+const showVideoPlaceholder = (ctx: CanvasRenderingContext2D) => {
+  const canvas = ctx.canvas
+  
+  // 清空画布
+  ctx.fillStyle = '#1a1a1a'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  
+  // 绘制播放按钮（三角形）
+  const centerX = canvas.width / 2
+  const centerY = canvas.height / 2
+  const size = 30
+  
+  ctx.fillStyle = '#18a058'
+  ctx.beginPath()
+  ctx.moveTo(centerX - size / 2, centerY - size / 2)
+  ctx.lineTo(centerX + size / 2, centerY)
+  ctx.lineTo(centerX - size / 2, centerY + size / 2)
+  ctx.closePath()
+  ctx.fill()
+  
+  // 绘制外圈
+  ctx.strokeStyle = '#18a058'
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.arc(centerX, centerY, size * 0.8, 0, Math.PI * 2)
+  ctx.stroke()
+  
+  console.log('📺 显示视频占位图标')
+}
+
+// 组件挂载后生成视频封面
+onMounted(() => {
+  if (isVideoFile.value && videoCanvasRef.value && !videoThumbnailGenerated.value) {
+    // 使用 IntersectionObserver 实现懒加载
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          generateVideoThumbnail()
+          observer.disconnect()
+        }
+      })
+    }, { rootMargin: '100px' })
+    
+    observer.observe(videoCanvasRef.value)
+  }
+})
 </script>
 
 <template>
@@ -120,9 +299,9 @@ const isVideoFile = computed(() => {
     <!-- 文件 -->
     <template v-else>
       <div class="media-wrapper" :class="[imageOrientation, { 'video-wrapper': isVideoFile }]">
-        <!-- Canvas 前端压缩（大图片） -->
+        <!-- Canvas 前端压缩（大图片和视频） -->
         <canvas 
-          v-if="shouldGenerateThumbnail" 
+          v-if="shouldGenerateThumbnail || isVideoFile" 
           class="media-thumbnail"
           :data-src="`/api/media/file?path=${encodeURIComponent(props.file.fullPath || props.file.path)}`"
           ref="canvasRef"
@@ -139,8 +318,8 @@ const isVideoFile = computed(() => {
           @load="handleImageLoad"
         />
         
-        <!-- 视频文件图标 -->
-        <n-icon v-else class="video-icon" size="64" color="#18a058">
+        <!-- 降级：显示图标（仅在 Canvas 生成失败时） -->
+        <n-icon v-else-if="isVideoFile" class="video-icon" size="64" color="#18a058">
           <VideocamOutline />
         </n-icon>
       </div>
@@ -169,35 +348,30 @@ const isVideoFile = computed(() => {
       height: 100%;
       overflow: hidden;
       background: transparent; // 透明背景，无颜色
-      border-radius: 8px;
       transition: all 0.3s ease;
       
-      // 横拍图容器：扁平的长方形（16:9）
+      // 横拍图容器：4:3 比例
       &.landscape {
-        padding-top: 25%; // 宽/高 = 16/9 ≈ 1.78，更宽更矮
+        padding-top: 2cqh; // 宽/高 = 4/3 ≈ 1.33
       }
       
-      // 竖拍图容器：瘦高的长方形（9:16）
+      // 竖拍图容器：4:3 比例
       &.portrait {
-        padding-top: 177.78%; // 宽/高 = 9/16 = 0.56，更窄更高
+        padding-top: 25%; // 统一为 4:3
       }
       
-      // 正方形图容器：1:1
+      // 正方形图容器：4:3 比例
       &.square {
-        padding-top: 100%;
+        padding-top: 25%; // 统一为 4:3
       }
       
-      // 未加载时默认正方形
+      // 未加载时默认 4:3
       &:not(.landscape):not(.portrait):not(.square) {
-        padding-top: 100%;
+        padding-top: 25%;
       }
       
       // 视频文件样式（简约图标）
       &.video-wrapper {
-        display: flex;
-        align-items: center;
-        height: 100%;
-        justify-content: center;
         background: transparent; // 透明背景
         
         .video-icon {
@@ -211,7 +385,6 @@ const isVideoFile = computed(() => {
           }
         }
       }
-      
       // 文件夹样式（简约图标）
       &.folder-wrapper {
         display: flex;
@@ -236,7 +409,6 @@ const isVideoFile = computed(() => {
         left: 0;
         width: 100%;
         height: 100%;
-        object-fit: cover; // 填满容器，无留白
         transition: transform 0.3s ease;
       }
       

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { NIcon, NSelect, NButton, NRadioGroup, NRadioButton, NUpload } from 'naive-ui'
+import { NIcon, NButton, NRadioGroup, NRadioButton, NUpload } from 'naive-ui'
 import { ArrowBackOutline, HomeOutline } from '@vicons/ionicons5'
 
 interface Library {
@@ -26,10 +26,6 @@ const emit = defineEmits<{
   'upload-success': []
 }>()
 
-const handleLibraryChange = (value: number) => {
-  emit('library-change', value)
-}
-
 const handleGoHome = () => {
   emit('go-home')
 }
@@ -55,13 +51,6 @@ const handleUploadSuccess = () => {
   <header class="header">
     <h2>媒体库</h2>
     <div class="header-actions">
-      <!-- 媒体库选择器 -->
-      <n-select 
-        :value="currentLibrary" 
-        :options="libraries.map(lib => ({ label: lib.name, value: parseInt(lib.id.split('-')[1]) }))"
-        style="width: 200px"
-        @update:value="handleLibraryChange"
-      />
       
       <n-button @click="handleGoHome" size="small">
         <template #icon>
