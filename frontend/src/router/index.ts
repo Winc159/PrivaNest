@@ -19,12 +19,7 @@ const routes = [
     component: () => import('@/views/Library/index.vue'),
     meta: { title: '媒体库', requiresAuth: true }
   },
-  {
-    path: '/player/:libraryIndex/:path+',
-    name: 'Player',
-    component: () => import('@/views/Player/index.vue'),
-    meta: { title: '播放器', requiresAuth: true }
-  },
+  // 独立播放器页面已弃用，改为 Library 页面内 Modal 播放
   {
     path: '/settings',
     name: 'Settings',

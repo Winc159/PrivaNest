@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { onMounted, nextTick, watch } from 'vue'
+import { onMounted, onUnmounted, nextTick, watch, ref, computed } from 'vue'
 import { useMediaStore } from '@/stores/media'
 import { useRouter, useRoute } from 'vue-router'
+import { VideoPlayer } from '@videojs-player/vue'
+import 'video.js/dist/video-js.css'
+import { NModal, NButton, NIcon } from 'naive-ui'
+import { CloseOutline } from '@vicons/ionicons5'
 import { useThumbnail } from '@/composables/useThumbnail'
 import { useFileNavigation } from '@/composables/useFileNavigation'
 import LibraryHeader from './components/LibraryHeader.vue'
@@ -21,6 +25,91 @@ interface FileData {
 const mediaStore = useMediaStore()
 const router = useRouter()
 const route = useRoute()
+
+// 全屏播放器相关状态
+const showFullscreenPlayer = ref(false)
+const currentVideoFile = ref<FileData | null>(null)
+const playerRef = ref<any>(null)
+const currentTime = ref(0)
+const duration = ref(0)
+const isPlaying = ref(false)
+
+// 获取播放器实例
+const getPlayer = () => {
+  return playerRef.value?.player || playerRef.value
+}
+
+// 当前播放的视频 URL
+const currentVideoUrl = computed(() => {
+  if (!currentVideoFile.value) return ''
+  
+  // 确保路径以 / 开头
+  let filePath = currentVideoFile.value.path
+  if (!filePath.startsWith('/')) {
+    filePath = '/' + filePath
+  }
+  
+  const url = `/api/media/file?library=${currentLibrary.value}&path=${encodeURIComponent(filePath)}`
+  
+  console.log('📺 构建视频 URL:', {
+    fileName: currentVideoFile.value.name,
+    originalPath: currentVideoFile.value.path,
+    normalizedPath: filePath,
+    library: currentLibrary.value,
+    finalUrl: url
+  })
+  
+  return url
+})
+
+// 获取视频文件的扩展名
+const getVideoExtension = () => {
+  if (!currentVideoFile.value) return 'mp4'
+  const ext = currentVideoFile.value.ext?.toLowerCase()
+  // 移除前导点号
+  return ext?.replace('.', '') || 'mp4'
+}
+
+// 根据扩展名获取 MIME 类型
+const getMimeType = (ext: string): string => {
+  const mimeTypes: Record<string, string> = {
+    mp4: 'video/mp4',
+    webm: 'video/webm',
+    ogg: 'video/ogg',
+    mov: 'video/quicktime',
+    wmv: 'video/x-ms-wmv',
+    avi: 'video/x-msvideo',
+    mkv: 'video/x-matroska',
+    flv: 'video/x-flv'
+  }
+  return mimeTypes[ext] || 'video/mp4'
+}
+
+// 播放器选项
+const playerOptions = computed(() => ({
+  controls: true,
+  autoplay: true,
+  preload: 'auto',
+  fluid: true,
+  aspectRatio: '16:9',
+  responsive: true,
+  sources: [{
+    src: currentVideoUrl.value,
+    type: getMimeType(getVideoExtension())
+  }],
+  controlBar: {
+    children: [
+      'playToggle',
+      'volumePanel',
+      'currentTimeDisplay',
+      'timeDivider',
+      'durationDisplay',
+      'progressControl',
+      'playbackRateMenuButton',
+      'fullscreenToggle'
+    ]
+  }
+}))
 
 // 使用 composables
 const { 
@@ -56,6 +145,9 @@ onMounted(async () => {
   nextTick(() => {
     observeCanvases()
   })
+  
+  // 添加键盘事件监听
+  window.addEventListener('keydown', handleKeydown)
 })
 
 // 监听路由参数变化，当 URL 中的 path 改变时重新加载文件夹
@@ -75,6 +167,14 @@ watch(() => mediaStore.files, (newFiles) => {
   }
 }, { deep: true })
 
+// 键盘事件处理
+const handleKeydown = (e: KeyboardEvent) => {
+  // 如果播放器打开且按下 ESC 键
+  if (showFullscreenPlayer.value && e.code === 'Escape') {
+    closePlayer()
+  }
+}
+
 // 事件处理函数
 const handleFolderClick = (path: string) => {
   // 导航到子文件夹时，同步更新 URL 参数
@@ -85,23 +185,130 @@ const handleFolderClick = (path: string) => {
 }
 
 const handleFileClick = (file: FileData) => {
-  // 如果是视频文件，跳转到播放页面，并携带当前路径作为返回位置
+  // 如果是视频文件，打开全屏播放器
   if (file.type === 'video') {
-    router.push({
-      path: `/player/${currentLibrary.value}${file.path}`,
-      query: { 
-        from: '/library',
-        path: route.query.path || '/' // 保存当前浏览路径（从 URL 获取）
-      }
+    console.log('🎬 点击视频文件:', {
+      name: file.name,
+      path: file.path,
+      fullPath: file.fullPath,
+      ext: file.ext,
+      type: file.type,
+      currentPath: mediaStore.currentPath,
+      library: currentLibrary.value
     })
+    
+    currentVideoFile.value = file
+    showFullscreenPlayer.value = true
   } else {
     // 图片文件暂时只输出日志，后续可实现预览
     console.log('点击文件:', file)
   }
 }
 
-const handleUploadSuccess = () => {
-  handleRefresh(mediaStore)
+// 关闭播放器
+const closePlayer = () => {
+  // 保存播放进度
+  saveProgress()
+  
+  // 暂停并清理播放器
+  const player = getPlayer()
+  if (player && typeof player.pause === 'function') {
+    player.pause()
+  }
+  
+  // 重置状态
+  showFullscreenPlayer.value = false
+  currentVideoFile.value = null
+  playerRef.value = null
+}
+
+// 播放器就绪事件
+const onPlayerReady = (player: any) => {
+  console.log('🎬 播放器就绪')
+  playerRef.value = player
+  
+  // 恢复上次播放进度
+  restoreProgress()
+}
+
+// 播放事件
+const onPlay = () => {
+  console.log('▶️ 开始播放')
+  isPlaying.value = true
+  saveProgress()
+}
+
+// 暂停事件
+const onPause = () => {
+  console.log('⏸️ 暂停播放')
+  isPlaying.value = false
+  saveProgress()
+}
+
+// 播放结束事件
+const onEnded = () => {
+  console.log('✅ 播放结束')
+  clearProgress()
+  closePlayer()
+}
+
+// 时间更新事件
+const onTimeUpdate = () => {
+  const player = getPlayer()
+  if (player && typeof player.currentTime === 'function') {
+    currentTime.value = player.currentTime()
+    duration.value = player.duration() || 0
+    
+    // 定期保存进度（每 5 秒）
+    if (Math.floor(currentTime.value) % 5 === 0) {
+      saveProgress()
+    }
+  }
+}
+
+// 本地存储进度
+const saveProgress = () => {
+  if (!currentVideoFile.value) return
+  
+  const player = getPlayer()
+  if (!player || typeof player.currentTime !== 'function') return
+  
+  const progress = {
+    path: currentVideoFile.value.path,
+    library: currentLibrary.value,
+    currentTime: player.currentTime(),
+    duration: player.duration(),
+    timestamp: Date.now()
+  }
+  
+  localStorage.setItem(`video-progress:${currentVideoFile.value.path}`, JSON.stringify(progress))
+}
+
+const restoreProgress = () => {
+  if (!currentVideoFile.value) return
+  
+  const player = getPlayer()
+  if (!player || typeof player.currentTime !== 'function') return
+  
+  const saved = localStorage.getItem(`video-progress:${currentVideoFile.value.path}`)
+  if (saved) {
+    try {
+      const progress = JSON.parse(saved)
+      // 如果距离上次观看不超过 24 小时，恢复进度
+      if (Date.now() - progress.timestamp < 24 * 60 * 60 * 1000) {
+        player.currentTime(progress.currentTime)
+        console.log('📼 恢复播放进度:', progress.currentTime)
+      }
+    } catch (e) {
+      console.error('恢复进度失败:', e)
+    }
+  }
+}
+
+const clearProgress = () => {
+  if (currentVideoFile.value) {
+    localStorage.removeItem(`video-progress:${currentVideoFile.value.path}`)
+  }
 }
 
 // 包装 goHome 函数，不传递参数
@@ -113,6 +320,22 @@ const handleGoHome = () => {
 const handleShouldGenerateThumbnail = (file: FileData): boolean => {
   return shouldGenerateThumbnail(file) || false
 }
+
+// 处理上传成功事件
+const handleUploadSuccess = () => {
+  handleRefresh(mediaStore)
+}
+
+onUnmounted(() => {
+  // 清理事件监听
+  window.removeEventListener('keydown', handleKeydown)
+  
+  // 清理播放器
+  const player = getPlayer()
+  if (player && typeof player.dispose === 'function') {
+    player.dispose()
+  }
+})
 </script>
 
 <template>
@@ -152,6 +375,44 @@ const handleShouldGenerateThumbnail = (file: FileData): boolean => {
       @file-click="handleFileClick"
       @scroll="(e: Event) => handleScroll(e, mediaStore)"
     />
+    
+    <!-- 全屏播放器 Modal -->
+    <n-modal
+      v-model:show="showFullscreenPlayer"
+      :close-on-esc="false"
+      :mask-closable="false"
+      preset="card"
+      style="width: 100vw; height: 100vh; max-width: none; max-height: none;"
+      content-style="padding: 0; display: flex; flex-direction: column;"
+      header-style="padding: 16px 24px; background: #0a0a0a; border-bottom: 1px solid #333;"
+      :closable="false"
+    >
+      <template #header>
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <div style="color: #fff; font-size: 16px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">
+            {{ currentVideoFile?.name }}
+          </div>
+          <n-button quaternary circle @click="closePlayer" style="color: #fff; margin-left: 16px;">
+            <template #icon>
+              <n-icon :component="CloseOutline" size="24" />
+            </template>
+          </n-button>
+        </div>
+      </template>
+      
+      <div style="flex: 1; background: #0a0a0a; display: flex; align-items: center; justify-content: center; position: relative;">
+        <VideoPlayer
+          v-if="showFullscreenPlayer"
+          :options="playerOptions"
+          @ready="onPlayerReady"
+          @play="onPlay"
+          @pause="onPause"
+          @ended="onEnded"
+          @timeupdate="onTimeUpdate"
+          style="width: 100%; height: 100%; max-height: calc(100vh - 73px);"
+        />
+      </div>
+    </n-modal>
   </div>
 </template>
 

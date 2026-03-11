@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
 
-const route = useRoute()
 const videoUrl = ref('')
 
 // 模拟视频 URL（后续替换为真实 API）

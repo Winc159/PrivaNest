@@ -395,6 +395,13 @@ export const mediaController = {
     const libraryIndex = parseInt(ctx.query.library || '0')
     const requestedPath = ctx.query.path as string
 
+    console.log('📥 [getFile] 收到请求:', {
+      libraryIndex,
+      requestedPath,
+      rawQuery: ctx.query,
+      decodedPath: decodeURIComponent(requestedPath)
+    })
+
     if (!requestedPath) {
       ctx.status = 400
       ctx.body = { message: '缺少路径参数' }
@@ -412,6 +419,14 @@ export const mediaController = {
       // 构建完整路径
       const fullPath = path.join(baseRoot, requestedPath)
 
+      console.log('🔍 [getFile] 路径信息:', {
+        baseRoot,
+        requestedPath,
+        fullPath,
+        decodedPath: decodeURIComponent(requestedPath),
+        decodedFullPath: path.join(baseRoot, decodeURIComponent(requestedPath))
+      })
+
       // 安全验证
       if (!fullPath.startsWith(baseRoot)) {
         ctx.status = 403
@@ -426,8 +441,9 @@ export const mediaController = {
       try {
         await fs.access(fullPath)
         fileExists = true
+        console.log('✅ [getFile] 找到文件（原始路径）:', fullPath)
       } catch (accessError: any) {
-        // 尝试解码路径（处理 URL 编码的特殊字符）
+        // 尝试解码路径（处理 URL编码的特殊字符）
         const decodedPath = decodeURIComponent(requestedPath)
         const decodedFullPath = path.join(baseRoot, decodedPath)
 
@@ -435,9 +451,10 @@ export const mediaController = {
           await fs.access(decodedFullPath)
           targetPath = decodedFullPath
           fileExists = true
+          console.log('✅ [getFile] 找到文件（解码路径）:', decodedFullPath)
         } catch (decodedError: any) {
           // 文件确实不存在，记录错误日志
-          console.error('File not found:', {
+          console.error('❌ [getFile] File not found:', {
             requestedPath,
             triedPaths: [fullPath, decodedFullPath]
           })
