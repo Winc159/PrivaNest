@@ -12,7 +12,8 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:reset": "tsx scripts/reset-db.ts",
     "db:seed": "tsx scripts/seed.ts",
-    "db:test": "tsx scripts/test-db.ts"
+    "db:test": "tsx scripts/test-db.ts",
+    "redis:test": "tsx scripts/test-redis.ts"
   },
   "keywords": [
     "privanest",
@@ -29,6 +30,7 @@
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.2",
     "dotenv": "^16.6.1",
+    "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
     "koa": "^3.0.0",
     "koa-bodyparser": "^4.4.1",
@@ -38,12 +40,13 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/ioredis": "^4.28.10",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/koa": "^2.15.0",
-    "@types/koa-bodyparser": "^4.3.13",
     "@types/koa__cors": "^5.0.1",
     "@types/koa__multer": "^2.0.8",
     "@types/koa__router": "^12.0.5",
+    "@types/koa-bodyparser": "^4.3.13",
     "@types/node": "^22.19.15",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"

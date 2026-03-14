@@ -16,5 +16,13 @@ export const config = {
   dbPath: process.env.DB_PATH || './storage/database.db',
   
   // 上传临时目录（用于封面等）
-  uploadPath: './storage/uploads'
+  uploadPath: './storage/uploads',
+
+  // Redis 配置
+  redis: {
+    host: process.env.REDIS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_PORT || '6379'),
+    password: process.env.REDIS_PASSWORD || undefined,
+    db: parseInt(process.env.REDIS_DB || '0')
+  }
 }

@@ -100,7 +100,7 @@ export const libraryController = {
       // 尝试从缓存读取
       let cachedData = null
       if (useCache) {
-        cachedData = dirCache.get(cacheKey)
+        cachedData = await dirCache.get(cacheKey)
       }
 
       let folders: any[] = []
@@ -108,11 +108,21 @@ export const libraryController = {
       let fromCache = false
 
       if (cachedData) {
-        // 使用缓存数据
-        folders = cachedData.folders
-        files = cachedData.files
+        // 使用缓存数据（增加数据有效性验证）
+        folders = Array.isArray(cachedData.folders) ? cachedData.folders : []
+        files = Array.isArray(cachedData.files) ? cachedData.files : []
         fromCache = true
-      } else {
+        
+        // 如果缓存数据无效，重新读取目录
+        if (folders.length === 0 && files.length === 0) {
+          fromCache = false
+          cachedData = null
+        } else {
+          console.log(`[使用缓存数据] 文件夹：${folders.length}个，文件：${files.length}个`)
+        }
+      }
+
+      if (!cachedData) {
         // 读取目录内容
         const items = await fs.readdir(dirPath, { withFileTypes: true })
 
