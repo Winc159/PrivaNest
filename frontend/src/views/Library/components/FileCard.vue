@@ -95,93 +95,96 @@ const getVideoFileUrl = computed(() => {
   return `/api/media/file?path=${encodeURIComponent(filePath)}`
 })
 
-// 前端 Canvas 抽取视频封面（无需 FFmpeg）
+// 前端 Canvas 抽取视频封面（优化版：优先使用后端缩略图）
 const generateVideoThumbnail = async () => {
   if (!videoCanvasRef.value || !isVideoFile.value || videoThumbnailGenerated.value) return
   
   try {
-    // 创建隐藏的 video 元素
-    const video = document.createElement('video')
-    video.crossOrigin = 'anonymous'
-    video.preload = 'metadata'
-    video.muted = true
+    console.log('🎬 开始生成视频封面:', props.file.name)
     
     // 获取视频文件 URL
     const videoUrl = getVideoFileUrl.value
     if (!videoUrl) return
+    
+    // 获取后端缩略图 URL
+    const thumbnailUrl = `/api/media/thumbnail?path=${encodeURIComponent(props.file.fullPath || props.file.path)}`
     
     // 创建 Canvas
     const canvas = videoCanvasRef.value
     const ctx = canvas.getContext('2d', { alpha: false })
     
     if (!ctx) {
-      console.error('Canvas context not available')
+      console.warn('❌ Canvas context not available')
       return
     }
     
-    return new Promise<void>((resolve) => {
+    // 先显示加载状态
+    canvas.width = 400
+    canvas.height = 300
+    ctx.fillStyle = '#1a1a1a'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#666'
+    ctx.font = '12px Arial'
+    ctx.textAlign = 'center'
+    ctx.fillText('Loading...', canvas.width / 2, canvas.height / 2)
+    
+    return new Promise<void>((resolve, reject) => {
       let hasResolved = false
       
-      // 视频加载成功
-      video.addEventListener('loadeddata', () => {
-        // 计算截图时间点：第 1 秒或视频时长的 1/3，取较小值
-        const targetTime = Math.min(1, Math.max(0.1, (video.duration || 1) / 3))
-        video.currentTime = targetTime
-        
-        // 统一设置为 4:3 比例的 Canvas
-        canvas.width = 400
-        canvas.height = 300
-        
-        // 填充黑色背景
-        ctx.fillStyle = '#000000'
-        ctx.fillRect(0, 0, canvas.width, canvas.height)
-        
-        // 绘制加载提示
-        ctx.fillStyle = '#666'
-        ctx.font = '12px Arial'
-        ctx.textAlign = 'center'
-        ctx.fillText('Loading...', canvas.width / 2, canvas.height / 2)
-      })
+      // 方案 1：优先尝试加载后端生成的缩略图（快速）
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
       
-      // 跳转到指定时间点
-      video.addEventListener('seeked', () => {
+      img.onload = () => {
         if (hasResolved) return
         hasResolved = true
         
         try {
-          // 绘制视频帧到 Canvas
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+          console.log('✅ 后端缩略图加载成功:', img.width, 'x', img.height)
           
-          // 标记为已生成
+          // 调整 Canvas 尺寸匹配缩略图比例
+          const aspectRatio = img.width / img.height
+          if (aspectRatio > 1.1) {
+            canvas.width = 400
+            canvas.height = 300
+          } else if (aspectRatio < 0.9) {
+            canvas.width = 300
+            canvas.height = 400
+          } else {
+            canvas.width = 300
+            canvas.height = 300
+          }
+          
+          // 绘制缩略图到 Canvas
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
           videoThumbnailGenerated.value = true
           
+          console.log('✅ 视频封面生成成功（后端缩略图）:', props.file.name)
           resolve()
         } catch (drawError) {
-          console.error('Failed to draw video frame:', drawError)
+          console.error('❌ 绘制失败:', drawError)
           showVideoPlaceholder(ctx)
           resolve()
         }
-      })
+      }
       
-      // 错误处理
-      video.addEventListener('error', () => {
+      img.onerror = () => {
         if (hasResolved) return
         hasResolved = true
         
-        console.warn('Failed to load video:', props.file.name)
+        console.warn('❌ 后端缩略图加载失败，降级到前端生成:', props.file.name)
         
-        if (ctx) {
-          showVideoPlaceholder(ctx)
-        }
-        
-        videoThumbnailGenerated.value = true
-        resolve()
-      })
+        // 降级方案：使用前端 Canvas 生成（原有逻辑）
+        fallbackToFrontendGeneration(canvas, ctx, videoUrl).then(resolve).catch(reject)
+      }
       
-      // 超时保护（10 秒）
+      // 开始加载后端缩略图
+      img.src = thumbnailUrl
+      
+      // 超时保护（8 秒）
       setTimeout(() => {
         if (!hasResolved) {
-          console.warn('Video loading timeout:', props.file.name)
+          console.warn('⏰ 后端缩略图加载超时，降级到前端生成:', props.file.name)
           hasResolved = true
           
           if (ctx) {
@@ -191,14 +194,91 @@ const generateVideoThumbnail = async () => {
           videoThumbnailGenerated.value = true
           resolve()
         }
-      }, 10000)
-      
-      // 开始加载视频
-      video.src = videoUrl
+      }, 8000)
     })
   } catch (error) {
-    console.error('Error generating video thumbnail:', props.file.name, error)
+    console.error('❌ 视频封面生成异常:', props.file.name, error)
   }
+}
+
+// 降级方案：前端 Canvas 生成（原有逻辑保持不变）
+const fallbackToFrontendGeneration = async (
+  canvas: HTMLCanvasElement,
+  ctx: CanvasRenderingContext2D,
+  videoUrl: string
+): Promise<void> => {
+  return new Promise<void>((resolve) => {
+    const video = document.createElement('video')
+    video.crossOrigin = 'anonymous'
+    video.preload = 'metadata'
+    video.muted = true
+    
+    let hasResolved = false
+    
+    video.addEventListener('loadeddata', () => {
+      console.log('✅ 视频加载成功（前端降级），时长:', video.duration)
+      
+      // 计算截图时间点：第 1 秒或视频时长的 1/3
+      const targetTime = Math.min(1, Math.max(0.1, (video.duration || 1) / 3))
+      video.currentTime = targetTime
+    })
+    
+    video.addEventListener('seeked', () => {
+      if (hasResolved) return
+      hasResolved = true
+      
+      try {
+        console.log('⏩ 已跳转到时间点（前端降级）:', video.currentTime)
+        
+        // 设置 Canvas 尺寸
+        canvas.width = 400
+        canvas.height = 300
+        
+        // 绘制视频帧
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        videoThumbnailGenerated.value = true
+        
+        console.log('✅ 视频封面生成成功（前端降级）:', props.file.name)
+        resolve()
+      } catch (drawError) {
+        console.error('❌ 绘制失败（前端降级）:', drawError)
+        showVideoPlaceholder(ctx)
+        resolve()
+      }
+    })
+    
+    video.addEventListener('error', () => {
+      if (hasResolved) return
+      hasResolved = true
+      
+      console.warn('❌ 视频加载失败（前端降级）:', props.file.name)
+      
+      if (ctx) {
+        showVideoPlaceholder(ctx)
+      }
+      
+      videoThumbnailGenerated.value = true
+      resolve()
+    })
+    
+    // 超时保护（10 秒）
+    setTimeout(() => {
+      if (!hasResolved) {
+        console.warn('⏰ 视频加载超时（前端降级）:', props.file.name)
+        hasResolved = true
+        
+        if (ctx) {
+          showVideoPlaceholder(ctx)
+        }
+        
+        videoThumbnailGenerated.value = true
+        resolve()
+      }
+    }, 10000)
+    
+    // 开始加载视频
+    video.src = videoUrl
+  })
 }
 
 // 显示视频占位图标

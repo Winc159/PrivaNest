@@ -288,11 +288,6 @@ onUnmounted(() => {
       v-model:show="showImagePreview"
       v-model:current="currentImageIndex"
       :src-list="imageSrcList"
-      :default-zoom="1"
-      :min-zoom="0.5"
-      :max-zoom="5"
-      :infinite="true"
-      :mask-closable="true"
       @update:show="handleUpdateShow"
       @update:current="handleUpdateCurrent"
     />

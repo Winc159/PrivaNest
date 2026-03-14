@@ -27,11 +27,6 @@ const emit = defineEmits<{
     v-model:show="show"
     v-model:current="currentIndex"
     :src-list="imageSrcList"
-    :default-zoom="1"
-    :min-zoom="0.5"
-    :max-zoom="5"
-    :infinite="true"
-    :mask-closable="true"
     @update:show="(val) => {
       emit('update:show', val)
       if (!val) emit('close')
