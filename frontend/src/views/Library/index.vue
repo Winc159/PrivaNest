@@ -1,6 +1,6 @@
+bu s
 <script setup lang="ts">
-import { onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
-import { VideoPlayer } from '@videojs-player/vue'
+import { onMounted, onUnmounted, nextTick, watch, computed, ref } from 'vue'
 import 'video.js/dist/video-js.css'
 import { NModal, NButton, NIcon, NImageGroup } from 'naive-ui'
 import { CloseOutline } from '@vicons/ionicons5'
@@ -9,7 +9,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useThumbnail } from '@/composables/useThumbnail'
 import { useFileNavigation } from '@/composables/useFileNavigation'
 import { useImagePreview } from '@/composables/useImagePreview'
-import { useVideoPlayer } from '@/composables/useVideoPlayer'
+import VideoPlayer from '@/components/VideoPlayer.vue'
 import LibraryHeader from './components/LibraryHeader.vue'
 import LibraryBreadcrumb from './components/LibraryBreadcrumb.vue'
 import FileListView from './components/FileListView.vue'
@@ -29,10 +29,10 @@ const router = useRouter()
 const route = useRoute()
 
 // 使用 composables
-const { 
-  getThumbnailUrl, 
+const {
+  getThumbnailUrl,
   shouldGenerateThumbnail,
-  observeCanvases 
+  observeCanvases
 } = useThumbnail()
 
 const {
@@ -63,20 +63,10 @@ const {
   handleUpdateCurrent
 } = useImagePreview(mediaStore)
 
-// 视频播放器逻辑
-const {
-  showFullscreenPlayer,
-  currentVideoFile,
-  playerOptions,
-  getPlayer,
-  openPlayer,
-  closePlayer,
-  onPlayerReady,
-  onPlay,
-  onPause,
-  onEnded,
-  onTimeUpdate
-} = useVideoPlayer(currentLibrary as any)
+// 视频播放器状态
+const showFullscreenPlayer = ref(false)
+const currentVideoFile = ref<FileData | null>(null)
+const showControlBar = ref(false)
 
 // 动态注入全局遮罩样式
 let styleElement: HTMLStyleElement | null = null
@@ -96,10 +86,10 @@ const imageSrcList = computed(() => {
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null
 const handleGlobalWheel = (e: WheelEvent) => {
   if (!showImagePreview.value || scrollTimeout) return
-  
+
   const delta = Math.abs(e.deltaY || e.deltaX)
   if (delta < 3) return
-  
+
   if (e.deltaY > 3 || e.deltaX > 0) {
     nextImage()
   } else if (e.deltaY < -3 || e.deltaX < 0) {
@@ -107,7 +97,7 @@ const handleGlobalWheel = (e: WheelEvent) => {
   } else {
     return
   }
-  
+
   scrollTimeout = setTimeout(() => {
     scrollTimeout = null
   }, 150)
@@ -118,6 +108,18 @@ const handleKeydown = (e: KeyboardEvent) => {
   if (showFullscreenPlayer.value && e.code === 'Escape') {
     closePlayer()
   }
+}
+
+// 打开播放器
+const openPlayer = (file: FileData) => {
+  currentVideoFile.value = file
+  showFullscreenPlayer.value = true
+}
+
+// 关闭播放器
+const closePlayer = () => {
+  showFullscreenPlayer.value = false
+  currentVideoFile.value = null
 }
 
 // 事件处理函数
@@ -151,17 +153,17 @@ const handleUploadSuccess = () => {
 
 onMounted(async () => {
   await initLibraries()
-  
+
   const initialPath = route.query.path as string || '/'
   await loadFolders(initialPath, mediaStore)
-  
+
   nextTick(() => {
     observeCanvases()
   })
-  
+
   window.addEventListener('keydown', handleKeydown)
   window.addEventListener('wheel', handleGlobalWheel, { passive: false })
-  
+
   // 动态注入全局遮罩样式到 head
   styleElement = document.createElement('style')
   styleElement.id = 'image-preview-mask-style'
@@ -192,16 +194,11 @@ watch(() => mediaStore.files, (newFiles) => {
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
   window.removeEventListener('wheel', handleGlobalWheel)
-  
+
   // 清理动态注入的遮罩样式
   if (styleElement) {
     document.head.removeChild(styleElement)
     styleElement = null
-  }
-  
-  const player = getPlayer()
-  if (player && typeof player.dispose === 'function') {
-    player.dispose()
   }
 })
 </script>
@@ -209,88 +206,53 @@ onUnmounted(() => {
 <template>
   <div class="library-container">
     <!-- 头部操作区 -->
-    <library-header
-      :current-library="currentLibrary"
-      :libraries="libraries"
-      :path-stack="pathStack"
-      :view-mode="viewMode"
-      :loading="mediaStore.loading"
-      @library-change="(value) => handleLibraryChange(value, mediaStore)"
-      @go-home="handleGoHome"
-      @go-back="() => goBack(mediaStore)"
-      @view-mode-change="(value) => viewMode = value"
-      @refresh="() => handleRefresh(mediaStore)"
-      @upload-success="handleUploadSuccess"
-    />
-    
+    <library-header :current-library="currentLibrary" :libraries="libraries" :path-stack="pathStack"
+      :view-mode="viewMode" :loading="mediaStore.loading"
+      @library-change="(value) => handleLibraryChange(value, mediaStore)" @go-home="handleGoHome"
+      @go-back="() => goBack(mediaStore)" @view-mode-change="(value) => viewMode = value"
+      @refresh="() => handleRefresh(mediaStore)" @upload-success="handleUploadSuccess" />
+
     <!-- 面包屑导航 -->
-    <library-breadcrumb
-      :path-stack="pathStack"
-      @navigate="(path) => navigateTo(path, mediaStore)"
-    />
-    
+    <library-breadcrumb :path-stack="pathStack" @navigate="(path) => navigateTo(path, mediaStore)" />
+
     <!-- 文件列表视图 -->
-    <file-list-view
-      :folders="mediaStore.folders"
-      :files="mediaStore.files"
-      :view-mode="viewMode"
-      :loading="mediaStore.loading"
-      :loading-more="loadingMore"
-      :has-more="mediaStore.pagination?.hasMore ?? null"
-      :get-thumbnail-url="getThumbnailUrl"
-      :should-generate-thumbnail="handleShouldGenerateThumbnail"
-      @folder-click="handleFolderClick"
-      @file-click="handleFileClick"
-      @scroll="(e: Event) => handleScroll(e, mediaStore)"
-    />
-    
+    <file-list-view :folders="mediaStore.folders" :files="mediaStore.files" :view-mode="viewMode"
+      :loading="mediaStore.loading" :loading-more="loadingMore" :has-more="mediaStore.pagination?.hasMore ?? null"
+      :get-thumbnail-url="getThumbnailUrl" :should-generate-thumbnail="handleShouldGenerateThumbnail"
+      @folder-click="handleFolderClick" @file-click="handleFileClick"
+      @scroll="(e: Event) => handleScroll(e, mediaStore)" />
+
     <!-- 全屏播放器 Modal -->
-    <n-modal
-      v-model:show="showFullscreenPlayer"
-      :close-on-esc="false"
-      :mask-closable="false"
-      preset="card"
+    <n-modal v-model:show="showFullscreenPlayer" :close-on-esc="false" :mask-closable="false" preset="card"
       style="width: 100vw; height: 100vh; max-width: none; max-height: none;"
-      content-style="padding: 0; display: flex; flex-direction: column;"
-      header-style="padding: 16px 24px; background: #0a0a0a; border-bottom: 1px solid #333;"
-      :closable="false"
-    >
-      <template #header>
-        <div style="display: flex; align-items: center; justify-content: space-between;">
-          <div style="color: #fff; font-size: 16px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;">
+      content-style="padding: 0; display: flex; flex-direction: column;" header-style="display: none;"
+      :closable="false">
+      <div @mouseenter="showControlBar = true" @mouseleave="showControlBar = false"
+        style="flex: 1; background: #0a0a0a; display: flex; position: relative; overflow: hidden;">
+
+        <div v-show="showControlBar"
+          style="position: absolute; top: 0; left: 0; right: 0; z-index: 10; padding: 25px 24px 20px; display: flex; align-items: center; justify-content: space-between; opacity: 0; transition: opacity 0.3s ease;"
+          :style="{ opacity: showControlBar ? 1 : 0 }">
+          <div
+            style="color: #fff; font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 20px; text-shadow: 0 1px 3px rgba(0,0,0,0.5);">
             {{ currentVideoFile?.name }}
           </div>
-          <n-button quaternary circle @click="closePlayer" style="color: #fff; margin-left: 16px;">
+          <n-button quaternary ghost circle @click="closePlayer"
+            style="color: #fff;  backdrop-filter: blur(10px); width: 40px; height: 40px; min-width: 40px; transition: all 0.2s ease;">
             <template #icon>
-              <n-icon :component="CloseOutline" size="24" />
+              <n-icon :component="CloseOutline" size="20" />
             </template>
           </n-button>
         </div>
-      </template>
-      
-      <div style="flex: 1; background: #0a0a0a; display: flex; align-items: center; justify-content: center; position: relative;">
-        <VideoPlayer
-          v-if="showFullscreenPlayer"
-          :options="playerOptions"
-          @ready="onPlayerReady"
-          @play="onPlay"
-          @pause="onPause"
-          @ended="onEnded"
-          @timeupdate="onTimeUpdate"
-          style="width: 100%; height: 100%; max-height: calc(100vh - 73px);"
-        />
+        <VideoPlayer v-if="showFullscreenPlayer" :file="currentVideoFile" :library="currentLibrary"
+          @close="closePlayer" />
+
       </div>
     </n-modal>
 
     <!-- 图片预览组 -->
-    <n-image-group
-      ref="imageGroupRef"
-      v-model:show="showImagePreview"
-      v-model:current="currentImageIndex"
-      :src-list="imageSrcList"
-      @update:show="handleUpdateShow"
-      @update:current="handleUpdateCurrent"
-    />
+    <n-image-group ref="imageGroupRef" v-model:show="showImagePreview" v-model:current="currentImageIndex"
+      :src-list="imageSrcList" @update:show="handleUpdateShow" @update:current="handleUpdateCurrent" />
   </div>
 </template>
 
