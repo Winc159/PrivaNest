@@ -76,7 +76,17 @@ const getMimeType = (ext: string): string => {
     wmv: 'video/x-ms-wmv',
     avi: 'video/x-msvideo',
     mkv: 'video/x-matroska',
-    flv: 'video/x-flv'
+    flv: 'video/x-flv',
+    m4v: 'video/x-m4v',
+    mpeg: 'video/mpeg',
+    mpg: 'video/mpeg',
+    '3gp': 'video/3gpp',
+    '3g2': 'video/3gpp2',
+    rmvb: 'application/vnd.rn-realmedia-vbr',
+    rm: 'application/vnd.rn-realmedia',
+    asf: 'video/x-ms-asf',
+    ts: 'video/mp2t',
+    mts: 'video/mp2t'
   }
   return mimeTypes[ext] || 'video/mp4'
 }

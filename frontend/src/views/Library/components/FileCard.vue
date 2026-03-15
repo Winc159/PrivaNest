@@ -85,7 +85,11 @@ const isVideoFile = computed(() => {
   const ext = props.file.ext?.toLowerCase()
   // 移除前导点号，兼容 .mp4 和 mp4 两种格式
   const cleanExt = ext?.replace('.', '')
-  return cleanExt && ['mp4', 'avi', 'mov', 'mkv', 'wmv', 'flv', 'webm'].includes(cleanExt)
+  return cleanExt && [
+    'mp4', 'mkv', 'avi', 'mov', 'webm', 'wmv', 'flv',
+    'm4v', 'mpeg', 'mpg', '3gp', '3g2',
+    'rmvb', 'rm', 'asf', 'ts', 'mts'
+  ].includes(cleanExt)
 })
 
 // 获取视频文件 URL

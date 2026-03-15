@@ -10,14 +10,22 @@ export function useThumbnail() {
 
   // 判断是否为图片文件
   const isImageFile = (file: any) => {
-    const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif']
+    const imageExts = [
+      'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif',
+      'svg', 'svgz', 'ico', 'tiff', 'tif',
+      'raw', 'cr2', 'nef', 'arw', 'dng'
+    ]
     const ext = file.ext?.toLowerCase().replace('.', '')
     return imageExts.includes(ext)
   }
 
   // 判断是否为视频文件
   const isVideoFile = (file: any) => {
-    const videoExts = ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm']
+    const videoExts = [
+      'mp4', 'mkv', 'avi', 'mov', 'webm', 'wmv', 'flv',
+      'm4v', 'mpeg', 'mpg', '3gp', '3g2',
+      'rmvb', 'rm', 'asf', 'ts', 'mts'
+    ]
     const ext = file.ext?.toLowerCase().replace('.', '')
     return videoExts.includes(ext)
   }

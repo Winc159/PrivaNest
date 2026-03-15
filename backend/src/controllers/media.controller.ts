@@ -219,7 +219,7 @@ export const mediaController = {
 
       // 检查是否为图片文件
       const ext = path.extname(resolvedPath).toLowerCase()
-      const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
+      const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.heif']
 
       if (imageExts.includes(ext)) {
         // 图片文件：直接返回缩放后的版本
