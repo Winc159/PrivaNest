@@ -2,14 +2,13 @@ bu s
 <script setup lang="ts">
 import { onMounted, onUnmounted, nextTick, watch, computed, ref } from 'vue'
 import 'video.js/dist/video-js.css'
-import { NModal, NButton, NIcon, NImageGroup } from 'naive-ui'
-import { CloseOutline } from '@vicons/ionicons5'
+import { NImageGroup } from 'naive-ui'
 import { useMediaStore } from '@/stores/media'
 import { useRouter, useRoute } from 'vue-router'
 import { useThumbnail } from '@/composables/useThumbnail'
 import { useFileNavigation } from '@/composables/useFileNavigation'
 import { useImagePreview } from '@/composables/useImagePreview'
-import VideoPlayer from '@/components/VideoPlayer.vue'
+import FullscreenVideoPlayer from '@/components/FullscreenVideoPlayer.vue'
 import LibraryHeader from './components/LibraryHeader.vue'
 import LibraryBreadcrumb from './components/LibraryBreadcrumb.vue'
 import FileListView from './components/FileListView.vue'
@@ -66,7 +65,6 @@ const {
 // 视频播放器状态
 const showFullscreenPlayer = ref(false)
 const currentVideoFile = ref<FileData | null>(null)
-const showControlBar = ref(false)
 
 // 动态注入全局遮罩样式
 let styleElement: HTMLStyleElement | null = null
@@ -114,7 +112,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 const openPlayer = (file: FileData) => {
   currentVideoFile.value = file
   showFullscreenPlayer.value = true
-  
+
   // 在 Modal 打开后移除 aria-hidden
   nextTick(() => {
     const modalElements = document.querySelectorAll('[aria-hidden="true"]')
@@ -206,8 +204,8 @@ onMounted(async () => {
     attributeFilter: ['aria-hidden']
   })
 
-  // 存储 observer 引用以便清理
-  ;(window as any).__ariaHiddenObserver = observer
+    // 存储 observer 引用以便清理
+    ; (window as any).__ariaHiddenObserver = observer
 })
 
 watch(() => route.query.path, (newPath) => {
@@ -267,33 +265,9 @@ onUnmounted(() => {
       @folder-click="handleFolderClick" @file-click="handleFileClick"
       @scroll="(e: Event) => handleScroll(e, mediaStore)" />
 
-    <!-- 全屏播放器 Modal -->
-    <n-modal v-model:show="showFullscreenPlayer" :close-on-esc="false" :mask-closable="false" preset="card"
-      style="width: 100vw; height: 100vh; max-width: none; max-height: none;"
-      content-style="padding: 0; display: flex; flex-direction: column;" header-style="display: none;"
-      :closable="false" :ignore-aria-hidden="true">
-      <div @mouseenter="showControlBar = true" @mouseleave="showControlBar = false"
-        style="flex: 1; background: #0a0a0a; display: flex; position: relative; overflow: hidden;">
-
-        <div v-show="showControlBar"
-          style="position: absolute; top: 0; left: 0; right: 0; z-index: 10; padding: 25px 24px 20px; display: flex; align-items: center; justify-content: space-between; opacity: 0; transition: opacity 0.3s ease;"
-          :style="{ opacity: showControlBar ? 1 : 0 }">
-          <div
-            style="color: #fff; font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 20px; text-shadow: 0 1px 3px rgba(0,0,0,0.5);">
-            {{ currentVideoFile?.name }}
-          </div>
-          <n-button quaternary circle @click="closePlayer"
-            style="color: #fff;  backdrop-filter: blur(10px); width: 40px; height: 40px; min-width: 40px; transition: all 0.2s ease;">
-            <template #icon>
-              <n-icon :component="CloseOutline" size="20" />
-            </template>
-          </n-button>
-        </div>
-        <VideoPlayer v-if="showFullscreenPlayer" :file="currentVideoFile" :library="currentLibrary"
-          @close="closePlayer" />
-
-      </div>
-    </n-modal>
+    <!-- 全屏播放器 -->
+    <FullscreenVideoPlayer v-model:show="showFullscreenPlayer" :file="currentVideoFile" :library="currentLibrary"
+      @close="closePlayer" />
 
     <!-- 图片预览组 -->
     <n-image-group ref="imageGroupRef" v-model:show="showImagePreview" v-model:current="currentImageIndex"
