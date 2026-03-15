@@ -114,6 +114,14 @@ const handleKeydown = (e: KeyboardEvent) => {
 const openPlayer = (file: FileData) => {
   currentVideoFile.value = file
   showFullscreenPlayer.value = true
+  
+  // 在 Modal 打开后移除 aria-hidden
+  nextTick(() => {
+    const modalElements = document.querySelectorAll('[aria-hidden="true"]')
+    modalElements.forEach(el => {
+      el.removeAttribute('aria-hidden')
+    })
+  })
 }
 
 // 关闭播放器
@@ -175,6 +183,31 @@ onMounted(async () => {
     }
   `
   document.head.appendChild(styleElement)
+
+  // 监听并移除 aria-hidden 属性，防止可访问性警告
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.type === 'attributes' && mutation.attributeName === 'aria-hidden') {
+        const target = mutation.target as HTMLElement
+        // 只要发现 aria-hidden="true" 就立即移除
+        if (target.getAttribute('aria-hidden') === 'true') {
+          // 使用 requestAnimationFrame 在下一帧移除，避免干扰当前渲染
+          requestAnimationFrame(() => {
+            target.removeAttribute('aria-hidden')
+          })
+        }
+      }
+    })
+  })
+
+  observer.observe(document.body, {
+    attributes: true,
+    subtree: true,
+    attributeFilter: ['aria-hidden']
+  })
+
+  // 存储 observer 引用以便清理
+  ;(window as any).__ariaHiddenObserver = observer
 })
 
 watch(() => route.query.path, (newPath) => {
@@ -190,6 +223,18 @@ watch(() => mediaStore.files, (newFiles) => {
     })
   }
 }, { deep: true })
+
+watch(() => showFullscreenPlayer.value, (newVal) => {
+  if (newVal) {
+    // Modal 打开时，移除所有 aria-hidden
+    nextTick(() => {
+      const modalElements = document.querySelectorAll('[aria-hidden="true"]')
+      modalElements.forEach(el => {
+        el.removeAttribute('aria-hidden')
+      })
+    })
+  }
+})
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
@@ -226,7 +271,7 @@ onUnmounted(() => {
     <n-modal v-model:show="showFullscreenPlayer" :close-on-esc="false" :mask-closable="false" preset="card"
       style="width: 100vw; height: 100vh; max-width: none; max-height: none;"
       content-style="padding: 0; display: flex; flex-direction: column;" header-style="display: none;"
-      :closable="false">
+      :closable="false" :ignore-aria-hidden="true">
       <div @mouseenter="showControlBar = true" @mouseleave="showControlBar = false"
         style="flex: 1; background: #0a0a0a; display: flex; position: relative; overflow: hidden;">
 
@@ -237,7 +282,7 @@ onUnmounted(() => {
             style="color: #fff; font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 20px; text-shadow: 0 1px 3px rgba(0,0,0,0.5);">
             {{ currentVideoFile?.name }}
           </div>
-          <n-button quaternary ghost circle @click="closePlayer"
+          <n-button quaternary circle @click="closePlayer"
             style="color: #fff;  backdrop-filter: blur(10px); width: 40px; height: 40px; min-width: 40px; transition: all 0.2s ease;">
             <template #icon>
               <n-icon :component="CloseOutline" size="20" />

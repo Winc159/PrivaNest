@@ -100,9 +100,6 @@ importers:
       '@vicons/ionicons5':
         specifier: ^0.12.0
         version: 0.12.0
-      '@videojs-player/vue':
-        specifier: ^1.0.0
-        version: 1.0.0(@types/video.js@7.3.58)(video.js@8.23.7)(vue@3.5.29(typescript@5.9.3))
       axios:
         specifier: ^1.8.0
         version: 1.13.6
@@ -823,18 +820,8 @@ packages:
   '@types/serve-static@2.2.0':
     resolution: {integrity: sha512-8mam4H1NHLtu7nmtalF7eyBH14QyOASmcxHhSfEoRyr0nP/YdoesEtU+uSRvMe96TW/HPTtkoKqQLl53N7UXMQ==}
 
-  '@types/video.js@7.3.58':
-    resolution: {integrity: sha512-1CQjuSrgbv1/dhmcfQ83eVyYbvGyqhTvb2Opxr0QCV+iJ4J6/J+XWQ3Om59WiwCd1MN3rDUHasx5XRrpUtewYQ==}
-
   '@vicons/ionicons5@0.12.0':
     resolution: {integrity: sha512-Iy1EUVRpX0WWxeu1VIReR1zsZLMc4fqpt223czR+Rpnrwu7pt46nbnC2ycO7ItI/uqDLJxnbcMC7FujKs9IfFA==}
-
-  '@videojs-player/vue@1.0.0':
-    resolution: {integrity: sha512-WonTezRfKu3fYdQLt/ta+nuKH6gMZUv8l40Jke/j4Lae7IqeO/+lLAmBnh3ni88bwR+vkFXIlZ2Ci7VKInIYJg==}
-    peerDependencies:
-      '@types/video.js': 7.x
-      video.js: 7.x
-      vue: 3.x
 
   '@videojs/http-streaming@3.17.4':
     resolution: {integrity: sha512-XAvdG2dolBuV2Fx8bu1kjmQ2D4TonGzZH68Pgv/O9xMSFWdZtITSMFismeQLEAtMmGwze8qNJp3RgV+jStrJqg==}
@@ -2558,15 +2545,7 @@ snapshots:
       '@types/http-errors': 2.0.5
       '@types/node': 22.19.15
 
-  '@types/video.js@7.3.58': {}
-
   '@vicons/ionicons5@0.12.0': {}
-
-  '@videojs-player/vue@1.0.0(@types/video.js@7.3.58)(video.js@8.23.7)(vue@3.5.29(typescript@5.9.3))':
-    dependencies:
-      '@types/video.js': 7.3.58
-      video.js: 8.23.7
-      vue: 3.5.29(typescript@5.9.3)
 
   '@videojs/http-streaming@3.17.4(video.js@8.23.7)':
     dependencies:

@@ -1,20 +1,12 @@
 <template>
   <div class="video-player-container">
-    <VideoPlayer 
-      :options="playerOptions" 
-      @ready="onPlayerReady"
-      @play="onPlay"
-      @pause="onPause"
-      @ended="onEnded"
-      @timeupdate="onTimeUpdate"
-      style="width: 100%; height: 100%;"
-    />
+    <video ref="videoElement" class="video-js vjs-default-skin"></video>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { VideoPlayer } from '@videojs-player/vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
+import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
 
 interface FileData {
@@ -42,10 +34,8 @@ interface Emits {
 const emit = defineEmits<Emits>()
 
 // 播放器引用
+const videoElement = ref<HTMLVideoElement | null>(null)
 const playerRef = ref<any>(null)
-const currentTime = ref(0)
-const duration = ref(0)
-const isPlaying = ref(false)
 
 // 当前播放的视频 URL
 const currentVideoUrl = computed(() => {
@@ -106,9 +96,8 @@ const playerOptions = computed(() => ({
   }],
   controlBar: {
     skipButtons: {
-      visible: true,
       forward: 30,
-      backward: 30,
+      backward: 10,
     },
     children: [
       'playToggle',
@@ -117,36 +106,122 @@ const playerOptions = computed(() => ({
       'timeDivider',
       'durationDisplay',
       'progressControl',
+      'remainingTimeDisplay',
       'playbackRateMenuButton',
-      'fullscreenToggle'
+      'fullscreenToggle',
     ]
   },
   userActions: {
-    hotkeys: true,
+    hotkeys: false, // 禁用内置快捷键，使用自定义实现
   }
 }))
 
-// 获取播放器实例
-const getPlayer = () => {
-  return playerRef.value?.player || playerRef.value
+// 初始化播放器
+const initPlayer = () => {
+  if (!videoElement.value) return
+
+  // 使用 video.js 初始化
+  playerRef.value = videojs(videoElement.value, playerOptions.value, function () {
+    const player = this
+
+    // 手动绑定快捷键以确保快进功能可用
+    document.addEventListener('keydown', handleKeyDown)
+
+    // 恢复进度
+    restoreProgress(player)
+
+    // 触发 ready 事件
+    emit('ready', player)
+  })
 }
 
-// 本地存储进度
-const saveProgress = () => {
-  if (!props.file) return
+// 处理键盘事件
+const handleKeyDown = (event: KeyboardEvent) => {
+  const player = playerRef.value
+  if (!player) return
 
-  const player = getPlayer()
-  if (!player || typeof player.currentTime !== 'function') return
-
-  const progress = {
-    path: props.file.path,
-    library: props.library,
-    currentTime: player.currentTime(),
-    duration: player.duration(),
-    timestamp: Date.now()
+  // 如果焦点在输入框中，不处理快捷键
+  if (['INPUT', 'TEXTAREA'].includes((event.target as HTMLElement).tagName)) {
+    return
   }
 
-  localStorage.setItem(`video-progress:${props.file.path}`, JSON.stringify(progress))
+  const currentTime = player.currentTime()
+  const duration = player.duration()
+
+  // 智能快进/后退逻辑：根据视频时长动态调整
+  const getSeekTime = (): number => {
+    // 5 分钟以上的视频，每次快进 30 秒
+    if (duration >= 300) {
+      return 30
+    }
+    // 2-5 分钟的视频，每次快进 10 秒
+    if (duration >= 120) {
+      return 10
+    }
+    // 2 分钟以下的视频，每次快进 5 秒
+    return 5
+  }
+
+  const seekTime = getSeekTime()
+  const durationStr = formatDuration(duration)
+
+  // 方向键左 - 后退（智能时间）
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    player.currentTime(Math.max(0, currentTime - seekTime))
+    logAction('⏪ 后退', `-${seekTime}s`, durationStr)
+  }
+
+  // 方向键右 - 前进（智能时间）
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    player.currentTime(Math.min(duration, currentTime + seekTime))
+    logAction('⏩ 前进', `+${seekTime}s`, durationStr)
+  }
+}
+
+/**
+ * 格式化时长为易读格式
+ */
+const formatDuration = (seconds: number): string => {
+  const mins = Math.floor(seconds / 60)
+  const secs = Math.floor(seconds % 60)
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+/**
+ * 统一的控制台日志输出
+ */
+const logAction = (action: string, detail: string, duration?: string) => {
+  const timestamp = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  const prefix = `[${timestamp}]`
+  const durationInfo = duration ? `| ${duration}` : ''
+
+  console.log(`${prefix} 🎬 ${action.padEnd(6, ' ')} ${detail.padEnd(8, ' ')} ${durationInfo}`)
+}
+
+// 更新视频源
+const updateSource = () => {
+  const player = playerRef.value
+  if (!player || !props.file) return
+
+  const newSrc = currentVideoUrl.value
+  const currentSrc = player.currentSrc()
+
+  // 只有当源变化时才更新
+  if (newSrc !== currentSrc) {
+    player.src({
+      src: newSrc,
+      type: getMimeType(getVideoExtension())
+    })
+    player.load()
+    logAction('📹 加载', props.file.name)
+  }
+}
+
+// 获取播放器实例
+const getPlayer = () => {
+  return playerRef.value
 }
 
 // 恢复进度
@@ -166,50 +241,29 @@ const restoreProgress = (player: any) => {
   }
 }
 
-// 清除进度
-const clearProgress = () => {
-  if (props.file) {
-    localStorage.removeItem(`video-progress:${props.file.path}`)
-  }
-}
+onMounted(() => {
+  // 直接初始化播放器，不使用 hotkeys 插件
+  initPlayer()
+})
 
-// 事件处理
-const onPlayerReady = (player: any) => {
-  playerRef.value = player
-  restoreProgress(player)
-  emit('ready', player)
-}
-
-const onPlay = () => {
-  isPlaying.value = true
-  saveProgress()
-}
-
-const onPause = () => {
-  isPlaying.value = false
-  saveProgress()
-}
-
-const onEnded = () => {
-  clearProgress()
-  emit('close')
-}
-
-const onTimeUpdate = () => {
+onUnmounted(() => {
+  // 清理播放器
   const player = getPlayer()
-  if (player && typeof player.currentTime === 'function') {
-    currentTime.value = player.currentTime()
-    duration.value = player.duration() || 0
-
-    if (Math.floor(currentTime.value) % 5 === 0) {
-      saveProgress()
-    }
+  if (player && typeof player.dispose === 'function') {
+    player.dispose()
+    playerRef.value = null
   }
-}
 
-// 监听文件变化，关闭播放器时清理
+  // 移除键盘事件监听
+  document.removeEventListener('keydown', handleKeyDown)
+})
+
+// 监听文件变化
 watch(() => props.file, (newFile, oldFile) => {
-  if (!newFile && oldFile) {
+  if (newFile && oldFile && newFile.path !== oldFile.path) {
+    // 文件切换，更新源
+    updateSource()
+  } else if (!newFile && oldFile) {
     // 文件被清空，关闭播放器
     const player = getPlayer()
     if (player && typeof player.pause === 'function') {
@@ -224,26 +278,67 @@ watch(() => props.file, (newFile, oldFile) => {
   width: 100%;
   height: 100%;
   background: #0a0a0a;
-  
+
   :deep(.video-js) {
     width: 100%;
     height: 100%;
-    
+
     .vjs-big-play-button {
       background-color: rgba(0, 0, 0, 0.7);
       border-color: transparent;
     }
-    
+
     .vjs-control-bar {
       background-color: rgba(0, 0, 0, 0.8);
     }
-    
+
     .vjs-play-progress {
       background-color: #3498db;
     }
-    
+
     .vjs-slider {
       background-color: rgba(255, 255, 255, 0.3);
+    }
+
+    // 时间显示样式优化
+    .vjs-current-time,
+    .vjs-duration,
+    .vjs-remaining-time {
+      font-weight: 500;
+      color: #fff;
+
+      span {
+        color: #fff;
+      }
+    }
+
+    // 当前时间和总时长
+    .vjs-current-time,
+    .vjs-duration {
+      min-width: 80px;
+    }
+
+    // 剩余时间显示
+    .vjs-remaining-time {
+      margin-left: 8px;
+      opacity: 0.8;
+
+      &:before {
+        content: '•';
+        margin-right: 8px;
+        color: #3498db;
+      }
+    }
+
+    // 时间分隔符
+    .vjs-time-divider {
+      color: #fff;
+      margin: 0 4px;
+    }
+
+    // 进度条悬停时显示预览时间
+    .vjs-progress-control:hover .vjs-progress-holder {
+      font-size: 13px;
     }
   }
 }
