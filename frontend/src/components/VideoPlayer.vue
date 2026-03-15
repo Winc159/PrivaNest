@@ -8,16 +8,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import videojs from 'video.js'
 import 'video.js/dist/video-js.css'
-
-interface FileData {
-  id: string
-  name: string
-  path: string
-  fullPath?: string
-  size?: string
-  ext?: string
-  type?: 'video' | 'image' | 'folder'
-}
+import type { FileData } from '@/types/file'
 
 interface Props {
   file: FileData | null
@@ -29,6 +20,7 @@ const props = defineProps<Props>()
 interface Emits {
   (e: 'close'): void
   (e: 'ready', player: any): void
+  (e: 'navigate', direction: 'prev' | 'next'): void
 }
 
 const emit = defineEmits<Emits>()
@@ -86,8 +78,8 @@ const playerOptions = computed(() => ({
   controls: true,
   autoplay: true,
   preload: 'auto',
-  fluid: true,
-  aspectRatio: '16:9',
+  fluid: false, // 禁用流式布局
+  fill: true,   // 启用填充模式，自动适应容器
   responsive: true,
   playbackRates: [0.5, 1, 1.5, 2],
   sources: [{
@@ -95,10 +87,6 @@ const playerOptions = computed(() => ({
     type: getMimeType(getVideoExtension())
   }],
   controlBar: {
-    skipButtons: {
-      forward: 30,
-      backward: 10,
-    },
     children: [
       'playToggle',
       'volumePanel',
@@ -148,6 +136,74 @@ const handleKeyDown = (event: KeyboardEvent) => {
   const currentTime = player.currentTime()
   const duration = player.duration()
 
+  // 阻止默认行为，避免与浏览器快捷键冲突
+  const preventDefaultKeys = [' ', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'm', 'M', 'f', 'F']
+  if (preventDefaultKeys.includes(event.key)) {
+    event.preventDefault()
+  }
+
+  // Alt + 方向键左 - 上一个视频
+  if (event.altKey && event.key === 'ArrowLeft') {
+    event.stopPropagation()
+    emit('navigate', 'prev')
+    logAction('⏮️ 上一个', '')
+    return
+  }
+
+  // Alt + 方向键右 - 下一个视频
+  if (event.altKey && event.key === 'ArrowRight') {
+    event.stopPropagation()
+    emit('navigate', 'next')
+    logAction('⏭️ 下一个', '')
+    return
+  }
+
+  // 空格 - 播放/暂停
+  if (event.code === 'Space') {
+    if (player.paused()) {
+      player.play()
+      logAction('▶️ 播放', '')
+    } else {
+      player.pause()
+      logAction('⏸️ 暂停', '')
+    }
+    return
+  }
+
+  // M - 静音/取消静音
+  if (event.key.toLowerCase() === 'm') {
+    player.muted(!player.muted())
+    logAction(player.muted() ? '🔇 静音' : '🔊 取消静音', '')
+    return
+  }
+
+  // F - 切换全屏
+  if (event.key.toLowerCase() === 'f') {
+    const playerElement = videoElement.value?.closest('.video-player-container')
+    if (playerElement) {
+      if (document.fullscreenElement) {
+        document.exitFullscreen()
+        logAction('📺 退出全屏', '')
+      } else {
+        playerElement.requestFullscreen().catch(err => {
+          console.log('全屏失败:', err)
+        })
+        logAction('📺 进入全屏', '')
+      }
+    }
+    return
+  }
+
+  // 数字键 1-9 - 跳转到指定百分比
+  const numberKey = parseInt(event.key)
+  if (!isNaN(numberKey) && numberKey >= 1 && numberKey <= 9) {
+    const percentage = numberKey / 10
+    const targetTime = duration * percentage
+    player.currentTime(targetTime)
+    logAction(`⏩ 跳转 ${percentage * 100}%`, `${formatDuration(targetTime)}/${formatDuration(duration)}`)
+    return
+  }
+
   // 智能快进/后退逻辑：根据视频时长动态调整
   const getSeekTime = (): number => {
     // 5 分钟以上的视频，每次快进 30 秒
@@ -167,16 +223,30 @@ const handleKeyDown = (event: KeyboardEvent) => {
 
   // 方向键左 - 后退（智能时间）
   if (event.key === 'ArrowLeft') {
-    event.preventDefault()
+    event.stopPropagation()
     player.currentTime(Math.max(0, currentTime - seekTime))
     logAction('⏪ 后退', `-${seekTime}s`, durationStr)
   }
 
   // 方向键右 - 前进（智能时间）
   if (event.key === 'ArrowRight') {
-    event.preventDefault()
+    event.stopPropagation()
     player.currentTime(Math.min(duration, currentTime + seekTime))
     logAction('⏩ 前进', `+${seekTime}s`, durationStr)
+  }
+
+  // 方向键上 - 增加音量
+  if (event.key === 'ArrowUp') {
+    const currentVolume = player.volume()
+    player.volume(Math.min(1, currentVolume + 0.1))
+    logAction('🔊 音量', `+10% → ${Math.round(player.volume() * 100)}%`)
+  }
+
+  // 方向键下 - 减小音量
+  if (event.key === 'ArrowDown') {
+    const currentVolume = player.volume()
+    player.volume(Math.max(0, currentVolume - 0.1))
+    logAction('🔉 音量', `-10% → ${Math.round(player.volume() * 100)}%`)
   }
 }
 
@@ -275,8 +345,8 @@ watch(() => props.file, (newFile, oldFile) => {
 
 <style lang="scss" scoped>
 .video-player-container {
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
   background: #0a0a0a;
 
   :deep(.video-js) {

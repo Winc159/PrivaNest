@@ -12,16 +12,7 @@ import FullscreenVideoPlayer from '@/components/FullscreenVideoPlayer.vue'
 import LibraryHeader from './components/LibraryHeader.vue'
 import LibraryBreadcrumb from './components/LibraryBreadcrumb.vue'
 import FileListView from './components/FileListView.vue'
-
-interface FileData {
-  id: string
-  name: string
-  path: string
-  fullPath?: string
-  size?: string
-  ext?: string
-  type?: 'video' | 'image' | 'folder'
-}
+import type { FileData } from '@/types/file'
 
 const mediaStore = useMediaStore()
 const router = useRouter()
@@ -66,6 +57,17 @@ const {
 const showFullscreenPlayer = ref(false)
 const currentVideoFile = ref<FileData | null>(null)
 
+// 当前播放列表（用于导航）
+const currentVideoList = computed<FileData[]>(() => {
+  return mediaStore.files.filter(f => f.type === 'video')
+})
+
+// 当前视频在列表中的索引
+const currentVideoIndex = computed<number>(() => {
+  if (!currentVideoFile.value) return -1
+  return currentVideoList.value.findIndex(f => f.path === currentVideoFile.value?.path)
+})
+
 // 动态注入全局遮罩样式
 let styleElement: HTMLStyleElement | null = null
 
@@ -101,31 +103,41 @@ const handleGlobalWheel = (e: WheelEvent) => {
   }, 150)
 }
 
-// 键盘事件处理
+// 键盘事件处理 - 只处理图片预览相关，视频播放器由 FullscreenVideoPlayer 自己处理
 const handleKeydown = (e: KeyboardEvent) => {
-  if (showFullscreenPlayer.value && e.code === 'Escape') {
-    closePlayer()
+  // 图片预览 ESC 关闭（如果有需要）
+  if (showImagePreview.value && e.code === 'Escape') {
+    // NImageGroup 内部已处理
   }
 }
 
-// 打开播放器
+// 打开播放器 - 简化版本
 const openPlayer = (file: FileData) => {
   currentVideoFile.value = file
   showFullscreenPlayer.value = true
-
-  // 在 Modal 打开后移除 aria-hidden
-  nextTick(() => {
-    const modalElements = document.querySelectorAll('[aria-hidden="true"]')
-    modalElements.forEach(el => {
-      el.removeAttribute('aria-hidden')
-    })
-  })
 }
 
 // 关闭播放器
 const closePlayer = () => {
   showFullscreenPlayer.value = false
   currentVideoFile.value = null
+}
+
+// 导航到上一个/下一个视频
+const navigateVideo = (direction: 'prev' | 'next') => {
+  const list = currentVideoList.value
+  const currentIndex = currentVideoIndex.value
+  
+  if (currentIndex === -1 || list.length === 0) return
+  
+  let newIndex: number
+  if (direction === 'prev') {
+    newIndex = currentIndex > 0 ? currentIndex - 1 : list.length - 1
+  } else {
+    newIndex = currentIndex < list.length - 1 ? currentIndex + 1 : 0
+  }
+  
+  currentVideoFile.value = list[newIndex]
 }
 
 // 事件处理函数
@@ -222,17 +234,6 @@ watch(() => mediaStore.files, (newFiles) => {
   }
 }, { deep: true })
 
-watch(() => showFullscreenPlayer.value, (newVal) => {
-  if (newVal) {
-    // Modal 打开时，移除所有 aria-hidden
-    nextTick(() => {
-      const modalElements = document.querySelectorAll('[aria-hidden="true"]')
-      modalElements.forEach(el => {
-        el.removeAttribute('aria-hidden')
-      })
-    })
-  }
-})
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
@@ -266,8 +267,14 @@ onUnmounted(() => {
       @scroll="(e: Event) => handleScroll(e, mediaStore)" />
 
     <!-- 全屏播放器 -->
-    <FullscreenVideoPlayer v-model:show="showFullscreenPlayer" :file="currentVideoFile" :library="currentLibrary"
-      @close="closePlayer" />
+    <FullscreenVideoPlayer 
+      v-model:show="showFullscreenPlayer"
+      :file="currentVideoFile" 
+      :library="currentLibrary"
+      :show-navigation="true"
+      @close="closePlayer"
+      @navigate="navigateVideo"
+    />
 
     <!-- 图片预览组 -->
     <n-image-group ref="imageGroupRef" v-model:show="showImagePreview" v-model:current="currentImageIndex"
