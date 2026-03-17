@@ -10,6 +10,7 @@ import { LRUCache } from '@/utils/lruCache'
  * - 并发控制：最多同时生成 5 个缩略图
  * - 超时保护：8 秒自动降级
  * - 懒加载：IntersectionObserver 触发
+ * - 智能暂停/恢复：根据用户浏览行为动态调整
  */
 export function useThumbnail() {
 
@@ -22,6 +23,10 @@ export function useThumbnail() {
   const processingCount = ref(0)
   const maxConcurrent = 5
   const processQueue: Array<() => void> = []
+  
+  // 暂停状态管理
+  const isPaused = ref(false)
+  const pausedQueue: Array<{ canvas: HTMLCanvasElement; src: string; resolve: () => void; reject: (err: any) => void }> = []
 
   // 判断是否为图片文件
   const isImageFile = (file: any) => {
@@ -137,9 +142,16 @@ export function useThumbnail() {
     }
   }
 
-  // 带并发控制的缩略图生成
+  // 带并发控制的缩略图生成（增强版：支持暂停）
   const generateThumbnailWithControl = async (canvas: HTMLCanvasElement, src: string) => {
     return new Promise<void>((resolve, reject) => {
+      // 如果处于暂停状态，加入等待队列
+      if (isPaused.value) {
+        console.log(`[暂停] ${src} - 加入等待队列`)
+        pausedQueue.push({ canvas, src, resolve, reject })
+        return
+      }
+
       // 超时保护
       const timeoutId = setTimeout(() => {
         console.warn(`[超时] ${src} - 8 秒未生成成功`)
@@ -177,6 +189,36 @@ export function useThumbnail() {
         execute()
       }
     })
+  }
+
+  // 暂停缩略图生成
+  const pauseGeneration = () => {
+    isPaused.value = true
+    console.log(`[暂停] 缩略图生成已暂停，等待队列长度：${pausedQueue.length}`)
+  }
+
+  // 恢复缩略图生成
+  const resumeGeneration = () => {
+    isPaused.value = false
+    console.log(`[恢复] 缩略图生成已恢复，处理等待队列：${pausedQueue.length}`)
+    
+    // 处理所有等待的任务
+    while (pausedQueue.length > 0 && processingCount.value < maxConcurrent) {
+      const task = pausedQueue.shift()
+      if (task) {
+        processingCount.value++
+        generateThumbnailWithControl(task.canvas, task.src)
+          .then(task.resolve)
+          .catch(task.reject)
+      }
+    }
+  }
+
+  // 清空等待队列（用于离开页面时）
+  const clearPausedQueue = () => {
+    const count = pausedQueue.length
+    pausedQueue.splice(0, pausedQueue.length)
+    console.log(`[清理] 清空等待队列：${count} 个任务`)
   }
 
   // 图片缩略图生成
@@ -383,7 +425,7 @@ export function useThumbnail() {
     ctx.stroke()
   }
 
-  // 监听 Canvas 元素渲染（带并发控制）
+  // 监听 Canvas 元素渲染（带并发控制和预加载）
   const observeCanvases = () => {
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
@@ -395,8 +437,41 @@ export function useThumbnail() {
             generateThumbnailWithControl(canvas, canvas.dataset.src)
               .catch(err => console.error(`[缩略图失败] ${canvas.dataset.src}:`, err))
           }
+        } else if (entry.intersectionRatio === 0 && entry.isIntersecting === false) {
+          // 元素完全离开视口，标记为未处理以便重新进入时可以再次加载
+          const canvas = entry.target as HTMLCanvasElement
+          if (canvas.dataset.processed) {
+            delete canvas.dataset.processed
+          }
         }
       })
+      
+      // 预加载策略：检测视口附近的元素
+      // 获取所有可见的 canvas
+      const visibleCanvases = entries
+        .filter(e => e.isIntersecting && e.target instanceof HTMLCanvasElement)
+        .map(e => e.target as HTMLCanvasElement)
+      
+      if (visibleCanvases.length > 0) {
+        // 找到视口中的最后一个可见元素
+        const lastVisible = visibleCanvases[visibleCanvases.length - 1]
+        
+        // 预加载下一个元素（如果存在）
+        const allCanvases = Array.from(document.querySelectorAll('.media-thumbnail[data-src]'))
+        const lastIndex = allCanvases.indexOf(lastVisible)
+        
+        if (lastIndex !== -1 && lastIndex + 1 < allCanvases.length) {
+          const nextCanvas = allCanvases[lastIndex + 1] as HTMLCanvasElement
+          const nextSrc = nextCanvas.dataset.src
+          
+          if (nextSrc && !nextCanvas.dataset.processed && processingCount.value < maxConcurrent) {
+            console.log(`[预加载] 提前加载下一个缩略图：${nextSrc}`)
+            nextCanvas.dataset.processed = 'true'
+            generateThumbnailWithControl(nextCanvas, nextSrc)
+              .catch(err => console.warn(`[预加载失败] ${nextSrc}:`, err))
+          }
+        }
+      }
     }, { rootMargin: '100px' })
 
     // 等待下一个 tick 确保 DOM 已更新
@@ -424,6 +499,10 @@ export function useThumbnail() {
     observeCanvases,
     getCachedThumbnail,
     cacheThumbnail,
-    generateCacheKey
+    generateCacheKey,
+    // 新增：暂停/恢复控制
+    pauseGeneration,
+    resumeGeneration,
+    clearPausedQueue
   }
 }

@@ -96,7 +96,8 @@ const isVideoFile = computed(() => {
 const getVideoFileUrl = computed(() => {
   if (!isVideoFile.value) return null
   const filePath = props.file.fullPath || props.file.path
-  return `/api/media/file?path=${encodeURIComponent(filePath)}`
+  const library = (props.file as any).library || 0
+  return `/api/media/file?library=${library}&path=${encodeURIComponent(filePath)}`
 })
 
 // 前端 Canvas 抽取视频封面（优化版：优先使用后端缩略图）
@@ -111,7 +112,8 @@ const generateVideoThumbnail = async () => {
     if (!videoUrl) return
     
     // 获取后端缩略图 URL
-    const thumbnailUrl = `/api/media/thumbnail?path=${encodeURIComponent(props.file.fullPath || props.file.path)}`
+    const library = (props.file as any).library || 0
+    const thumbnailUrl = `/api/media/thumbnail?library=${library}&path=${encodeURIComponent(props.file.fullPath || props.file.path)}`
     
     // 创建 Canvas
     const canvas = videoCanvasRef.value
@@ -354,7 +356,7 @@ onMounted(() => {
         <canvas 
           v-if="shouldGenerateThumbnail || isVideoFile" 
           class="media-thumbnail"
-          :data-src="`/api/media/file?path=${encodeURIComponent(props.file.fullPath || props.file.path)}`"
+          :data-src="`/api/media/file?library=${(file as any).library || 0}&path=${encodeURIComponent(props.file.fullPath || props.file.path)}`"
           ref="canvasRef"
         />
         

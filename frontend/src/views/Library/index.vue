@@ -22,7 +22,10 @@ const route = useRoute()
 const {
   getThumbnailUrl,
   shouldGenerateThumbnail,
-  observeCanvases
+  observeCanvases,
+  pauseGeneration,
+  resumeGeneration,
+  clearPausedQueue
 } = useThumbnail()
 
 const {
@@ -127,16 +130,16 @@ const closePlayer = () => {
 const navigateVideo = (direction: 'prev' | 'next') => {
   const list = currentVideoList.value
   const currentIndex = currentVideoIndex.value
-  
+
   if (currentIndex === -1 || list.length === 0) return
-  
+
   let newIndex: number
   if (direction === 'prev') {
     newIndex = currentIndex > 0 ? currentIndex - 1 : list.length - 1
   } else {
     newIndex = currentIndex < list.length - 1 ? currentIndex + 1 : 0
   }
-  
+
   currentVideoFile.value = list[newIndex]
 }
 
@@ -154,6 +157,11 @@ const handleFileClick = (file: FileData) => {
   }
 }
 
+// 包装 goBack 函数
+const handleGoBack = () => {
+  goBack(mediaStore)
+}
+
 // 包装 goHome 函数
 const handleGoHome = () => {
   goHome(router)
@@ -161,7 +169,7 @@ const handleGoHome = () => {
 
 // 包装 handleLibraryChange 函数
 const handleLibraryChangeWrapper = (value: number) => {
-  handleLibraryChange(value, mediaStore)
+  handleLibraryChange(value, mediaStore, { pauseGeneration, resumeGeneration, clearPausedQueue })
 }
 
 // 包装 shouldGenerateThumbnail
@@ -180,10 +188,10 @@ onMounted(async () => {
   const initialPath = route.query.path as string || '/'
   // 从 URL 参数读取媒体库索引，默认为 0
   const initialLibrary = parseInt(route.query.library as string || '0')
-  
+
   // 设置初始媒体库
   currentLibrary.value = initialLibrary
-  
+
   await loadFolders(initialPath, mediaStore)
 
   nextTick(() => {
@@ -275,9 +283,8 @@ onUnmounted(() => {
   <div class="library-container">
     <!-- 头部操作区 -->
     <library-header :current-library="currentLibrary" :libraries="libraries" :path-stack="pathStack"
-      :view-mode="viewMode" :loading="mediaStore.loading"
-      @library-change="handleLibraryChangeWrapper" @go-home="handleGoHome"
-      @go-back="() => goBack(mediaStore)" @view-mode-change="(value) => viewMode = value"
+      :view-mode="viewMode" :loading="mediaStore.loading" @library-change="handleLibraryChangeWrapper"
+      @go-home="handleGoHome" @go-back="handleGoBack" @view-mode-change="(value) => viewMode = value"
       @refresh="() => handleRefresh(mediaStore)" @upload-success="handleUploadSuccess" />
 
     <!-- 面包屑导航 -->
@@ -291,14 +298,8 @@ onUnmounted(() => {
       @scroll="(e: Event) => handleScroll(e, mediaStore)" />
 
     <!-- 全屏播放器 -->
-    <FullscreenVideoPlayer 
-      v-model:show="showFullscreenPlayer"
-      :file="currentVideoFile" 
-      :library="currentLibrary"
-      :show-navigation="true"
-      @close="closePlayer"
-      @navigate="navigateVideo"
-    />
+    <FullscreenVideoPlayer v-model:show="showFullscreenPlayer" :file="currentVideoFile" :library="currentLibrary"
+      :show-navigation="true" @close="closePlayer" @navigate="navigateVideo" />
 
     <!-- 图片预览组 -->
     <n-image-group ref="imageGroupRef" v-model:show="showImagePreview" v-model:current="currentImageIndex"
