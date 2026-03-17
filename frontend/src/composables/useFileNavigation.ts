@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import type { Router } from 'vue-router'
+import { mediaApi } from '@/api'
 
 interface Library {
   id: string
@@ -11,7 +12,7 @@ interface Library {
  * 文件导航 Hook
  * 处理媒体库切换、目录导航、滚动加载等功能
  */
-export function useFileNavigation() {
+export function useFileNavigation(router?: Router) {
   const viewMode = ref<'grid' | 'list'>('grid')
   const pathStack = ref<string[]>(['/'])
   const currentLibrary = ref(0)
@@ -20,11 +21,28 @@ export function useFileNavigation() {
 
   // 初始化媒体库列表
   const initLibraries = async () => {
-    // TODO: 获取已配置的媒体库列表
-    libraries.value = [
-      { id: 'lib-0', name: 'Movies', fullPath: '/Volumes/Media/Movies' },
-      { id: 'lib-1', name: 'Series', fullPath: '/Volumes/Data/Series' }
-    ]
+    try {
+      const response = await mediaApi.getLibraries()
+      const paths = (response as any).paths || []
+      
+      // 过滤掉不存在的路径，只保留有效路径
+      libraries.value = paths
+        .map((p: any, index: number) => ({
+          id: p.id || `lib-${index}`,
+          name: p.name || p.fullPath.split('/').pop() || `Library ${index}`,
+          fullPath: p.fullPath
+        }))
+        .filter((lib: Library) => lib.fullPath && lib.fullPath.trim() !== '')
+      
+      // 如果当前选择的库超出范围，重置为第一个
+      if (currentLibrary.value >= libraries.value.length && libraries.value.length > 0) {
+        currentLibrary.value = 0
+      }
+    } catch (error) {
+      console.error('获取媒体库列表失败:', error)
+      // 降级处理：使用环境变量配置的路径
+      libraries.value = []
+    }
   }
 
   // 加载文件夹
@@ -59,6 +77,17 @@ export function useFileNavigation() {
   const handleLibraryChange = (value: number, mediaStore: any) => {
     currentLibrary.value = value
     pathStack.value = ['/']
+    
+    // 同步更新 URL 参数
+    if (router) {
+      router.push({
+        query: {
+          path: '/',
+          library: value
+        }
+      })
+    }
+    
     loadFolders('/', mediaStore)
   }
 

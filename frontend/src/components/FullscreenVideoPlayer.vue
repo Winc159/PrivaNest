@@ -237,17 +237,18 @@ const handleKeydown = (e: KeyboardEvent) => {
 .fullscreen-video-player {
   width: 100vw;
   height: 100vh;
-  max-width: none !important;
-  max-height: none !important;
+  max-width: 100vw;
+  max-height: 100vh;
 
-  :deep(.n-card__content) {
+  .n-card__content {
     padding: 0 !important;
-    display: flex;
-    flex-direction: column;
+    width: 100%;
     height: 100%;
   }
 
   .player-wrapper {
+    width: 100%;
+    height: 100%;
     flex: 1;
     background: #0a0a0a;
     display: flex;

@@ -11,14 +11,35 @@ import { formatFileSize, isVideoFile, isImageFile } from '../utils/file.js'
 export const libraryController = {
   /**
    * 获取所有已配置的媒体库路径
+   * 只返回实际存在且可访问的路径
    */
   async getLibraryPaths(ctx: any) {
+    const validPaths = []
+    
+    for (const [index, p] of config.mediaPaths.entries()) {
+      try {
+        // 验证路径是否存在且可访问
+        await fs.access(p)
+        const stat = await fs.stat(p)
+        
+        // 确保是目录
+        if (stat.isDirectory()) {
+          validPaths.push({
+            id: `lib-${index}`,
+            name: path.basename(p) || p,
+            fullPath: p
+          })
+        } else {
+          console.warn(`跳过非目录路径：${p}`)
+        }
+      } catch (error: any) {
+        // 路径不存在或无法访问，不添加到返回列表
+        console.warn(`媒体库路径无法访问：${p} - ${error.message}`)
+      }
+    }
+    
     ctx.body = {
-      paths: config.mediaPaths.map((p, index) => ({
-        id: `lib-${index}`,
-        name: path.basename(p) || p,
-        fullPath: p
-      }))
+      paths: validPaths
     }
   },
 

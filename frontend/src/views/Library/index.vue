@@ -39,7 +39,7 @@ const {
   handleLibraryChange,
   handleScroll,
   handleRefresh
-} = useFileNavigation()
+} = useFileNavigation(router)
 
 // 图片预览逻辑
 const {
@@ -159,6 +159,11 @@ const handleGoHome = () => {
   goHome(router)
 }
 
+// 包装 handleLibraryChange 函数
+const handleLibraryChangeWrapper = (value: number) => {
+  handleLibraryChange(value, mediaStore)
+}
+
 // 包装 shouldGenerateThumbnail
 const handleShouldGenerateThumbnail = (file: FileData): boolean => {
   return shouldGenerateThumbnail(file) || false
@@ -173,6 +178,12 @@ onMounted(async () => {
   await initLibraries()
 
   const initialPath = route.query.path as string || '/'
+  // 从 URL 参数读取媒体库索引，默认为 0
+  const initialLibrary = parseInt(route.query.library as string || '0')
+  
+  // 设置初始媒体库
+  currentLibrary.value = initialLibrary
+  
   await loadFolders(initialPath, mediaStore)
 
   nextTick(() => {
@@ -220,6 +231,19 @@ onMounted(async () => {
     ; (window as any).__ariaHiddenObserver = observer
 })
 
+// 监听路由参数中的 library 变化
+watch(() => route.query.library, (newLibrary) => {
+  if (newLibrary !== undefined) {
+    const libraryIndex = parseInt(newLibrary as string || '0')
+    if (libraryIndex !== currentLibrary.value) {
+      currentLibrary.value = libraryIndex
+      // 切换媒体库时重置路径为根目录
+      pathStack.value = ['/']
+      loadFolders('/', mediaStore)
+    }
+  }
+})
+
 watch(() => route.query.path, (newPath) => {
   if (newPath && newPath !== mediaStore.currentPath) {
     navigateTo(newPath as string, mediaStore)
@@ -252,7 +276,7 @@ onUnmounted(() => {
     <!-- 头部操作区 -->
     <library-header :current-library="currentLibrary" :libraries="libraries" :path-stack="pathStack"
       :view-mode="viewMode" :loading="mediaStore.loading"
-      @library-change="(value) => handleLibraryChange(value, mediaStore)" @go-home="handleGoHome"
+      @library-change="handleLibraryChangeWrapper" @go-home="handleGoHome"
       @go-back="() => goBack(mediaStore)" @view-mode-change="(value) => viewMode = value"
       @refresh="() => handleRefresh(mediaStore)" @upload-success="handleUploadSuccess" />
 

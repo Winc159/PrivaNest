@@ -28,6 +28,7 @@ export const authApi = {
 // 媒体库 API
 export const mediaApi = {
   getFolders: (path: string, library?: number) => request.get(`/media/folders?path=${path}&library=${library || 0}`),
+  getLibraries: () => request.get('/media/libraries'),
   uploadFile: (formData: FormData) => request.post('/media/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),

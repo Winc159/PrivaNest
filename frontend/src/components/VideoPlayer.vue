@@ -78,8 +78,7 @@ const playerOptions = computed(() => ({
   controls: true,
   autoplay: true,
   preload: 'auto',
-  fluid: false, // 禁用流式布局
-  fill: true,   // 启用填充模式，自动适应容器
+  fluid: false, // 禁用流式布局，改用 CSS 控制
   responsive: true,
   playbackRates: [0.5, 1, 1.5, 2],
   sources: [{
@@ -87,6 +86,10 @@ const playerOptions = computed(() => ({
     type: getMimeType(getVideoExtension())
   }],
   controlBar: {
+    skipButtons: {
+      forward: 30,
+      backward: 10,
+    },
     children: [
       'playToggle',
       'volumePanel',
@@ -345,13 +348,25 @@ watch(() => props.file, (newFile, oldFile) => {
 
 <style lang="scss" scoped>
 .video-player-container {
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
   background: #0a0a0a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 
   :deep(.video-js) {
     width: 100%;
     height: 100%;
+    
+    // 关键：使用 aspect-ratio 保持 16:9，但受限于容器尺寸
+    // Video.js 会自动适配父容器的约束
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain; // 保持比例，自动留黑边
+    }
 
     .vjs-big-play-button {
       background-color: rgba(0, 0, 0, 0.7);
