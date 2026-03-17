@@ -3,6 +3,7 @@ import path from 'path'
 import { config } from '../config/index.js'
 import { dirCache } from '../utils/cache.js'
 import { formatFileSize, isVideoFile, isImageFile } from '../utils/file.js'
+import crypto from 'crypto'
 
 /**
  * 媒体库控制器
@@ -174,7 +175,8 @@ export const libraryController = {
                 size: formatFileSize(stat.size),
                 type: isVideoFile(ext) ? 'video' : 'image',
                 ext: ext.replace('.', ''), // 移除前导点号
-                library: libraryIndex
+                library: libraryIndex,
+                mtime: stat.mtimeMs // 修改时间，用于缓存验证
               })
             }
           }
@@ -204,14 +206,14 @@ export const libraryController = {
         pagination: {
           page,
           pageSize,
-          totalItems: totalFiles,
+          totalFiles,
           totalPages,
-          hasMore: endIndex < totalFiles
+          hasMore: page < totalPages
         },
         fromCache
       }
     } catch (error: any) {
-      console.error('getFolders error:', error)
+      console.error(`[错误] 获取文件夹列表失败：${error.message}`)
       ctx.status = 500
       ctx.body = {
         message: '读取目录失败',
@@ -221,59 +223,76 @@ export const libraryController = {
   },
 
   /**
-   * 添加新的媒体库路径
+   * 获取单个文件的缩略图（带缓存）
    */
-  async addLibraryPath(ctx: any) {
-    const body = ctx.request.body as any
-    const { customPath } = body
+  async getThumbnail(ctx: any) {
+    const requestedPath = Array.isArray(ctx.query.path) ? ctx.query.path[0] : (ctx.query.path || '')
+    const libraryIndex = parseInt(Array.isArray(ctx.query.library) ? ctx.query.library[0] : (ctx.query.library || '0'))
+    const width = parseInt(ctx.query.width || '600')
+    const height = parseInt(ctx.query.height || '400')
 
-    if (!customPath) {
-      ctx.status = 400
-      ctx.body = { message: '路径不能为空' }
-      return
-    }
+    const baseRoot = config.mediaPaths[libraryIndex] || config.mediaPaths[0]
+    const filePath = path.join(baseRoot, requestedPath)
 
     try {
-      // 验证路径是否存在
-      await fs.access(customPath)
-      const stat = await fs.stat(customPath)
+      // 验证文件是否存在
+      await fs.access(filePath)
+      const stat = await fs.stat(filePath)
 
-      if (!stat.isDirectory()) {
-        ctx.status = 400
-        ctx.body = { message: '路径必须是目录' }
+      // 生成缓存键（基于路径、修改时间和大小）
+      const cacheKey = crypto
+        .createHash('md5')
+        .update(`${filePath}:${stat.mtimeMs}:${stat.size}`)
+        .digest('hex')
+
+      const thumbnailPath = path.join(config.thumbnailPath, String(libraryIndex), `${cacheKey}.jpg`)
+
+      // 检查缩略图缓存是否存在
+      try {
+        await fs.access(thumbnailPath)
+        // 缓存命中，直接返回
+        ctx.set('Content-Type', 'image/jpeg')
+        ctx.set('Cache-Control', 'public, max-age=86400') // 缓存 24 小时
+        ctx.body = await fs.readFile(thumbnailPath)
+        console.log(`[缩略图缓存命中] ${requestedPath}`)
+        return
+      } catch (err) {
+        // 缓存未命中，需要生成
+      }
+
+      // 如果是图片，直接返回原图（前端会自己处理）
+      const ext = path.extname(filePath).toLowerCase()
+      if (isImageFile(ext)) {
+        ctx.set('Content-Type', `image/${ext.replace('.', '')}`)
+        ctx.body = await fs.readFile(filePath)
+        console.log(`[返回原图] ${requestedPath}`)
         return
       }
 
-      // 添加到配置（运行时临时添加，重启后消失）
-      if (!config.mediaPaths.includes(customPath)) {
-        config.mediaPaths.push(customPath)
+      // 如果是视频，返回占位图（前端会用 Canvas 生成封面）
+      if (isVideoFile(ext)) {
+        // 创建一个简单的 SVG 占位图
+        const placeholder = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+          <rect width="100%" height="100%" fill="#1a1a1a"/>
+          <text x="50%" y="50%" text-anchor="middle" fill="#666" font-size="24">🎬</text>
+        </svg>`
+        
+        ctx.set('Content-Type', 'image/svg+xml')
+        ctx.body = placeholder
+        console.log(`[视频占位图] ${requestedPath}`)
+        return
       }
 
-      ctx.body = {
-        message: '添加成功',
-        path: customPath
-      }
-    } catch (error: any) {
+      // 不支持的文件类型
       ctx.status = 400
-      ctx.body = { message: '路径无效或无法访问', error: error.message }
-    }
-  },
-
-  /**
-   * 清除目录缓存（用于文件变更后手动刷新）
-   */
-  async clearCache(ctx: any) {
-    const { path: requestedPath, library } = ctx.query
-
-    if (requestedPath) {
-      // 清除特定路径的缓存
-      const cacheKey = `${library || '0'}:${requestedPath}`
-      dirCache.delete(cacheKey)
-      ctx.body = { message: '已清除指定路径缓存', path: requestedPath }
-    } else {
-      // 清除所有缓存
-      dirCache.clear()
-      ctx.body = { message: '已清除所有缓存' }
+      ctx.body = { message: '不支持的文件类型' }
+    } catch (error: any) {
+      console.error(`[错误] 获取缩略图失败：${error.message}`)
+      ctx.status = 404
+      ctx.body = {
+        message: '文件不存在或无法读取',
+        error: error.message
+      }
     }
   }
 }

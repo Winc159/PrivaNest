@@ -17,6 +17,9 @@ export const config = {
   
   // 上传临时目录（用于封面等）
   uploadPath: './storage/uploads',
+  
+  // 缩略图缓存目录
+  thumbnailPath: './storage/thumbnails',
 
   // Redis 配置
   redis: {

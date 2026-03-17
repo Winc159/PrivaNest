@@ -1,12 +1,27 @@
 import { ref } from 'vue'
+import { LRUCache } from '@/utils/lruCache'
 
 /**
  * 缩略图生成 Hook
  * 用于处理大图片的前端 Canvas 压缩
+ * 
+ * 优化特性：
+ * - LRU 缓存：最多存储 100 个缩略图
+ * - 并发控制：最多同时生成 5 个缩略图
+ * - 超时保护：8 秒自动降级
+ * - 懒加载：IntersectionObserver 触发
  */
 export function useThumbnail() {
 
   const canvasRefs = ref<HTMLCanvasElement[]>([])
+  
+  // LRU 缓存：存储已生成的缩略图
+  const thumbnailCache = new LRUCache<string, string>(100)
+  
+  // 并发控制
+  const processingCount = ref(0)
+  const maxConcurrent = 5
+  const processQueue: Array<() => void> = []
 
   // 判断是否为图片文件
   const isImageFile = (file: any) => {
@@ -66,9 +81,41 @@ export function useThumbnail() {
     return url?.startsWith('canvas:')
   }
 
+  // 从缓存获取缩略图
+  const getCachedThumbnail = (cacheKey: string): string | undefined => {
+    return thumbnailCache.get(cacheKey)
+  }
+
+  // 缓存缩略图
+  const cacheThumbnail = (cacheKey: string, dataUrl: string) => {
+    thumbnailCache.set(cacheKey, dataUrl)
+  }
+
+  // 生成缓存键
+  const generateCacheKey = (file: any): string => {
+    return `${file.path}:${file.mtime || ''}:${file.size || ''}`
+  }
+
   // Canvas 生成缩略图（支持图片和视频）
   const generateThumbnail = async (canvas: HTMLCanvasElement, src: string) => {
     try {
+      // 检查缓存
+      const cacheKey = src
+      const cached = getCachedThumbnail(cacheKey)
+      if (cached) {
+        console.log(`[缓存命中] ${src}`)
+        // 从缓存加载
+        const img = new Image()
+        img.onload = () => {
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+          }
+        }
+        img.src = cached
+        return
+      }
+
       // 判断是否为视频文件
       const isVideo = src.includes('/api/media/file') &&
         /\.(mp4|avi|mov|mkv|wmv|flv|webm)$/i.test(src)
@@ -80,9 +127,56 @@ export function useThumbnail() {
         // 图片缩略图生成
         await generateImageThumbnail(canvas, src)
       }
+      
+      // 加入缓存
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+      cacheThumbnail(cacheKey, dataUrl)
     } catch (error) {
+      console.error(`[缩略图生成失败] ${src}:`, error)
       throw error
     }
+  }
+
+  // 带并发控制的缩略图生成
+  const generateThumbnailWithControl = async (canvas: HTMLCanvasElement, src: string) => {
+    return new Promise<void>((resolve, reject) => {
+      // 超时保护
+      const timeoutId = setTimeout(() => {
+        console.warn(`[超时] ${src} - 8 秒未生成成功`)
+        showPlaceholder(canvas)
+        resolve()
+      }, 8000)
+
+      // 执行实际生成
+      const execute = async () => {
+        try {
+          await generateThumbnail(canvas, src)
+          clearTimeout(timeoutId)
+          resolve()
+        } catch (error) {
+          clearTimeout(timeoutId)
+          reject(error)
+        } finally {
+          processingCount.value--
+          // 处理队列中的下一个
+          if (processQueue.length > 0) {
+            const next = processQueue.shift()
+            if (next) next()
+          }
+        }
+      }
+
+      // 检查并发数
+      if (processingCount.value >= maxConcurrent) {
+        // 加入队列
+        processQueue.push(execute)
+        console.log(`[排队等待] ${src} - 当前队列长度：${processQueue.length}`)
+      } else {
+        // 立即执行
+        processingCount.value++
+        execute()
+      }
+    })
   }
 
   // 图片缩略图生成
@@ -246,6 +340,19 @@ export function useThumbnail() {
     }
   }
 
+  // 显示占位符（通用）
+  const showPlaceholder = (canvas: HTMLCanvasElement) => {
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    ctx.fillStyle = '#f0f0f0'
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    ctx.fillStyle = '#ccc'
+    ctx.font = '24px Arial'
+    ctx.textAlign = 'center'
+    ctx.fillText('📁', canvas.width / 2, canvas.height / 2)
+  }
+
   // 显示视频占位图标
   const showVideoPlaceholder = (canvas: HTMLCanvasElement) => {
     const ctx = canvas.getContext('2d')
@@ -276,7 +383,7 @@ export function useThumbnail() {
     ctx.stroke()
   }
 
-  // 监听 Canvas 元素渲染
+  // 监听 Canvas 元素渲染（带并发控制）
   const observeCanvases = () => {
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
@@ -285,7 +392,8 @@ export function useThumbnail() {
 
           if (canvas.dataset.src && !canvas.dataset.processed) {
             canvas.dataset.processed = 'true'
-            generateThumbnail(canvas, canvas.dataset.src)
+            generateThumbnailWithControl(canvas, canvas.dataset.src)
+              .catch(err => console.error(`[缩略图失败] ${canvas.dataset.src}:`, err))
           }
         }
       })
@@ -312,6 +420,10 @@ export function useThumbnail() {
     getThumbnailUrl,
     shouldGenerateThumbnail,
     generateThumbnail,
-    observeCanvases
+    generateThumbnailWithControl,
+    observeCanvases,
+    getCachedThumbnail,
+    cacheThumbnail,
+    generateCacheKey
   }
 }

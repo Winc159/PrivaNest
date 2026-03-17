@@ -348,8 +348,8 @@ watch(() => props.file, (newFile, oldFile) => {
 
 <style lang="scss" scoped>
 .video-player-container {
-  width: 100%;
-  height: 100%;
+  width: 100vw;
+  height: 100vh;
   background: #0a0a0a;
   display: flex;
   align-items: center;
@@ -359,7 +359,7 @@ watch(() => props.file, (newFile, oldFile) => {
   :deep(.video-js) {
     width: 100%;
     height: 100%;
-    
+
     // 关键：使用 aspect-ratio 保持 16:9，但受限于容器尺寸
     // Video.js 会自动适配父容器的约束
     video {
