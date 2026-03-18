@@ -484,7 +484,6 @@ export function useThumbnail() {
     allCanvases.forEach(canvas => {
       delete (canvas as HTMLElement).dataset.processed
     })
-    console.log('[observeCanvases] 已重置', allCanvases.length, '个 Canvas 的 processed 标记')
 
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {

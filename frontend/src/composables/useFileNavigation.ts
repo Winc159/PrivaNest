@@ -66,6 +66,16 @@ export function useFileNavigation(router?: Router) {
       pathStack.value.push(path)
     }
 
+    // 同步更新 URL 参数
+    if (router) {
+      router.push({
+        query: {
+          path,
+          library: currentLibrary.value
+        }
+      })
+    }
+
     // 注意：不暂停当前目录的缩略图生成
     // 视口内的文件（P0）和预加载（P1）应该正常进行
     // 只有当切换媒体库或长时间离开时才考虑暂停
@@ -79,6 +89,15 @@ export function useFileNavigation(router?: Router) {
 
       loadFolders(prevPath, mediaStore, false)  // 不重置路径栈，已经 pop 过了
 
+      // 同步更新 URL 参数
+      if (router) {
+        router.push({
+          query: {
+            path: prevPath,
+            library: currentLibrary.value
+          }
+        })
+      }
     }
   }
 

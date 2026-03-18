@@ -167,6 +167,12 @@ const handleGoHome = () => {
   goHome(router)
 }
 
+// 包装 navigateTo 函数（用于面包屑导航）
+const handleNavigate = (path: string) => {
+  router.push({ query: { ...route.query, path } })
+  navigateTo(path, mediaStore)
+}
+
 // 包装 handleLibraryChange 函数
 const handleLibraryChangeWrapper = (value: number) => {
   handleLibraryChange(value, mediaStore, { pauseGeneration, resumeGeneration, clearPausedQueue })
@@ -291,7 +297,7 @@ onUnmounted(() => {
       @refresh="() => handleRefresh(mediaStore)" @upload-success="handleUploadSuccess" />
 
     <!-- 面包屑导航 -->
-    <library-breadcrumb :path-stack="pathStack" @navigate="(path) => navigateTo(path, mediaStore)" />
+    <library-breadcrumb :path-stack="pathStack" @navigate="handleNavigate" />
 
     <!-- 文件列表视图 -->
     <file-list-view :folders="mediaStore.folders" :files="mediaStore.files" :view-mode="viewMode"
