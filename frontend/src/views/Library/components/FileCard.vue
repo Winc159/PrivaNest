@@ -104,71 +104,57 @@ const getVideoFileUrl = computed(() => {
 const generateVideoThumbnail = async () => {
   if (!videoCanvasRef.value || !isVideoFile.value || videoThumbnailGenerated.value) return
 
-  // 获取视频文件 URL
   const videoUrl = getVideoFileUrl.value
   if (!videoUrl) return
 
-  // 获取后端缩略图 URL
   const library = (props.file as any).library || 0
   const thumbnailUrl = `/api/media/thumbnail?library=${library}&path=${encodeURIComponent(props.file.fullPath || props.file.path)}`
 
-  // 创建 Canvas
   const canvas = videoCanvasRef.value
   const ctx = canvas.getContext('2d', { alpha: false })
 
-  if (!ctx) {
-    return
-  }
+  if (!ctx) return
 
-  // 先显示加载状态
+  // 初始化 Canvas 尺寸
   canvas.width = 400
   canvas.height = 300
-  ctx.fillStyle = '#1a1a1a'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-  ctx.fillStyle = '#666'
-  ctx.font = '12px Arial'
-  ctx.textAlign = 'center'
-  ctx.fillText('Loading...', canvas.width / 2, canvas.height / 2)
 
   return new Promise<void>((resolve, reject) => {
     let hasResolved = false
 
-    // 方案 1：使用后端生成的缩略图（优先）
-    if (thumbnailUrl) {
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
+    // 优先使用后端生成的缩略图
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
 
-      const timeoutId = setTimeout(() => {
-        if (!hasResolved) {
-          hasResolved = true
-          showVideoPlaceholder(ctx)
-          videoThumbnailGenerated.value = true
-          resolve()
-        }
-      }, 8000)
-
-      img.onload = () => {
-        if (hasResolved) return
-        clearTimeout(timeoutId)
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        canvas.dataset.loaded = 'true'
+    const timeoutId = setTimeout(() => {
+      if (!hasResolved) {
         hasResolved = true
+        showVideoPlaceholder(ctx)
         videoThumbnailGenerated.value = true
         resolve()
       }
+    }, 8000)
 
-      img.onerror = () => {
-        if (hasResolved) return
-        clearTimeout(timeoutId)
-        // 进入降级方案
-        fallbackToFrontendGeneration(canvas, ctx, videoUrl).then(resolve).catch(reject)
-      }
+    img.onload = () => {
+      if (hasResolved) return
+      clearTimeout(timeoutId)
+      
+      // 绘制后端缩略图
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+      canvas.dataset.loaded = 'true'
+      hasResolved = true
+      videoThumbnailGenerated.value = true
+      resolve()
+    }
 
-      img.src = thumbnailUrl
-    } else {
-      // 无后端缩略图，直接进入降级方案
+    img.onerror = () => {
+      if (hasResolved) return
+      clearTimeout(timeoutId)
+      // 降级到前端 Canvas 生成
       fallbackToFrontendGeneration(canvas, ctx, videoUrl).then(resolve).catch(reject)
     }
+
+    img.src = thumbnailUrl
   })
 }
 
@@ -309,7 +295,7 @@ onMounted(() => {
       <div class="media-wrapper" :class="[imageOrientation, { 'video-wrapper': isVideoFile }]">
         <!-- Canvas 前端压缩（大图片和视频） -->
         <canvas v-if="shouldGenerateThumbnail || isVideoFile" class="media-thumbnail"
-          :data-src="`/api/media/file?library=${(file as any).library || 0}&path=${encodeURIComponent(props.file.fullPath || props.file.path)}`"
+          :data-src="thumbnailUrl || `/api/media/file?library=${(file as any).library || 0}&path=${encodeURIComponent(props.file.fullPath || props.file.path)}`"
           ref="canvasRef" />
 
         <!-- NImage 组件加载小图片 -->

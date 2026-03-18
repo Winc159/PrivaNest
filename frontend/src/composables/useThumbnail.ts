@@ -63,7 +63,7 @@ export function useThumbnail() {
     const sizeBytes = parseFileSize(file.size || '0 B')
     const library = file.library || 0
 
-    // 1. 小图片（<500KB）：直接返回原图路径，用 CSS 缩放
+    // 1. 小图片（<500KB）：直接返回原图路径
     if (isImageFile(file) && sizeBytes < 500 * 1024) {
       return `/api/media/file?library=${library}&path=${encodeURIComponent(file.fullPath || file.path)}`
     }
@@ -73,18 +73,26 @@ export function useThumbnail() {
       return `canvas:${library}:${encodeURIComponent(file.fullPath || file.path)}`
     }
 
-    // 3. 视频文件：统一使用 Canvas 前端生成封面
+    // 3. 视频文件：优先使用后端 FFmpeg 生成缩略图
     if (isVideoFile(file)) {
-      return `canvas:${library}:${encodeURIComponent(file.fullPath || file.path)}`
+      return `/api/media/thumbnail?library=${library}&path=${encodeURIComponent(file.fullPath || file.path)}`
     }
 
     return null
   }
 
-  // 判断是否需要生成缩略图（大图片需要）
+  // 判断是否需要生成缩略图
   const shouldGenerateThumbnail = (file: any) => {
     const url = getThumbnailUrl(file)
-    return url?.startsWith('canvas:')
+    if (!url) return false
+    
+    // 大图片需要前端 Canvas 压缩
+    if (url.startsWith('canvas:')) return true
+    
+    // 视频文件需要 Canvas 元素显示后端缩略图
+    if (url.includes('/api/media/thumbnail') && isVideoFile(file)) return true
+    
+    return false
   }
 
   // 从缓存获取缩略图
@@ -116,17 +124,13 @@ export function useThumbnail() {
             img.src = cached
           })
 
-          // 保持与原始生成一致的绘制逻辑
           const ctx = canvas.getContext('2d')
           if (ctx) {
-            // 固定 Canvas 尺寸
             canvas.width = 300
             canvas.height = 300
-
-            // 清空画布（透明背景）
             ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-            // 使用 contain 模式，保持宽高比居中绘制
+            // 保持比例居中绘制
             const scale = Math.min(canvas.width / img.width, canvas.height / img.height)
             const drawWidth = img.width * scale
             const drawHeight = img.height * scale
@@ -141,22 +145,20 @@ export function useThumbnail() {
       }
 
       // 判断是否为视频文件
-      const isVideo = src.includes('/api/media/file') &&
-        /\.(mp4|avi|mov|mkv|wmv|flv|webm)$/i.test(src)
+      const isVideo = (src.includes('/api/media/file') || src.includes('/api/media/thumbnail')) &&
+        /\.(mp4|avi|mov|mkv|wmv|flv|webm)$/i.test(decodeURIComponent(src))
 
       if (isVideo) {
-        // 视频封面生成
         await generateVideoThumbnail(canvas, src)
       } else {
-        // 图片缩略图生成
         await generateImageThumbnail(canvas, src)
       }
 
-      // ✅ 加入缓存 - 使用 PNG 格式以支持透明背景（JPEG 不支持透明）
+      // 加入缓存
       const dataUrl = canvas.toDataURL('image/png')
       cacheThumbnail(src, dataUrl)
     } catch (error) {
-      console.error(`[缩略图生成失败] ${src}:`, error)
+      console.error('[Thumbnail] Generation failed:', error)
       throw error
     }
   }
@@ -238,40 +240,32 @@ export function useThumbnail() {
 
   // 图片缩略图生成
   const generateImageThumbnail = async (canvas: HTMLCanvasElement, src: string) => {
-    try {
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
 
-      // 处理 canvas: 前缀的 URL（格式：canvas:${library}:${encodedPath}）
+    try {
+      // 处理 canvas:前缀的 URL
       let imageUrl = src
       if (src.startsWith('canvas:')) {
-        // 移除 canvas: 前缀
         const withoutPrefix = src.substring(7)
-        // 分割 library 和 path
         const firstColonIndex = withoutPrefix.indexOf(':')
         if (firstColonIndex !== -1) {
           const library = withoutPrefix.substring(0, firstColonIndex)
           const encodedPath = withoutPrefix.substring(firstColonIndex + 1)
-          // 构建实际的 API URL
           imageUrl = `/api/media/file?library=${library}&path=${encodedPath}`
         } else {
-          // 兼容旧格式（没有 library）
           imageUrl = `/api/media/file?path=${withoutPrefix}`
         }
       }
 
       await new Promise((resolve, reject) => {
         img.onload = resolve
-        img.onerror = () => {
-          reject(new Error(`图片加载失败：${imageUrl}`))
-        }
+        img.onerror = () => reject(new Error(`图片加载失败：${imageUrl}`))
         img.src = imageUrl
       })
 
-      // 计算宽高比，智能选择显示策略
+      // 计算方向
       const aspectRatio = img.width / img.height
-
-      // 根据图片方向设置 Canvas 容器的纵横比（通过 CSS 类名）
       let orientationClass = ''
       if (aspectRatio > 1.2) {
         orientationClass = 'landscape'
@@ -280,27 +274,23 @@ export function useThumbnail() {
       } else {
         orientationClass = 'square'
       }
-
-      // 将方向信息存储到 dataset，供 CSS 使用
       canvas.dataset.orientation = orientationClass
 
-      // 固定 Canvas 尺寸（实际渲染由 CSS 控制）
+      // 绘制缩略图
       canvas.width = 300
       canvas.height = 300
 
       const ctx = canvas.getContext('2d')
       if (ctx) {
-        // 背景填充（透明）
         ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-        // 统一使用 contain 模式，完整显示图片
+        // 保持比例居中绘制
         const scale = Math.min(canvas.width / img.width, canvas.height / img.height)
         const drawWidth = img.width * scale
         const drawHeight = img.height * scale
         const drawX = (canvas.width - drawWidth) / 2
         const drawY = (canvas.height - drawHeight) / 2
 
-        // 绘制缩放后的图片
         ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
       }
     } catch (error) {
@@ -308,129 +298,177 @@ export function useThumbnail() {
     }
   }
 
-  // 视频封面生成（前端 Canvas 抽取帧）
+  // 视频封面生成（优先后端 FFmpeg，降级到前端 Canvas）
   const generateVideoThumbnail = async (canvas: HTMLCanvasElement, src: string) => {
     try {
-      // 创建隐藏的 video 元素
-      const video = document.createElement('video')
-      video.crossOrigin = 'anonymous'
-      video.preload = 'metadata'
-      video.muted = true
+      // 判断是否是后端 thumbnail 接口 URL
+      const isBackendThumbnail = src.includes('/api/media/thumbnail')
+      
+      if (isBackendThumbnail) {
+        // 方案 1：使用后端 FFmpeg 生成的缩略图
+        return await generateFromBackendThumbnail(canvas, src)
+      } else {
+        // 方案 2：降级到前端 Canvas 抽取视频帧
+        return await generateFromVideoFrame(canvas, src)
+      }
+    } catch (error) {
+      console.error('[视频缩略图生成失败]:', error)
+      throw error
+    }
+  }
 
-      // 处理 canvas: 前缀的 URL（格式：canvas:${library}:${encodedPath}）
-      let videoUrl = src
-      if (src.startsWith('canvas:')) {
-        // 移除 canvas: 前缀
-        const withoutPrefix = src.substring(7)
-        // 分割 library 和 path
-        const firstColonIndex = withoutPrefix.indexOf(':')
-        if (firstColonIndex !== -1) {
-          const library = withoutPrefix.substring(0, firstColonIndex)
-          const encodedPath = withoutPrefix.substring(firstColonIndex + 1)
-          // 构建实际的 API URL
-          videoUrl = `/api/media/file?library=${library}&path=${encodedPath}`
+  // 从后端 thumbnail 接口加载缩略图
+  const generateFromBackendThumbnail = async (canvas: HTMLCanvasElement, thumbnailUrl: string) => {
+    return new Promise<void>((resolve, reject) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+
+      // 超时保护（15 秒）
+      const timeoutId = setTimeout(() => {
+        generateFromVideoFrame(canvas, thumbnailUrl).then(resolve).catch(reject)
+      }, 15000)
+
+      img.onload = () => {
+        clearTimeout(timeoutId)
+        
+        if (img.width > 0 && img.height > 0) {
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            canvas.width = 300
+            canvas.height = 300
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+            // 保持比例居中绘制
+            const scale = Math.min(canvas.width / img.width, canvas.height / img.height)
+            const drawWidth = img.width * scale
+            const drawHeight = img.height * scale
+            const drawX = (canvas.width - drawWidth) / 2
+            const drawY = (canvas.height - drawHeight) / 2
+
+            ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
+            
+            // 设置方向信息
+            const aspectRatio = img.width / img.height
+            let orientationClass = ''
+            if (aspectRatio > 1.2) {
+              orientationClass = 'landscape'
+            } else if (aspectRatio < 0.8) {
+              orientationClass = 'portrait'
+            } else {
+              orientationClass = 'square'
+            }
+            canvas.dataset.orientation = orientationClass
+            canvas.dataset.loaded = 'true'
+          }
+          resolve()
         } else {
-          // 兼容旧格式（没有 library）
-          videoUrl = `/api/media/file?path=${withoutPrefix}`
+          generateFromVideoFrame(canvas, thumbnailUrl).then(resolve).catch(reject)
         }
       }
 
-      return new Promise<void>((resolve) => {
-        let hasResolved = false
+      img.onerror = () => {
+        clearTimeout(timeoutId)
+        generateFromVideoFrame(canvas, thumbnailUrl).then(resolve).catch(reject)
+      }
 
-        // 视频加载成功
-        video.addEventListener('loadeddata', () => {
-          // 计算截图时间点：第 1 秒或视频时长的 1/3，取较小值
-          const targetTime = Math.min(1, Math.max(0.1, (video.duration || 1) / 3))
-          video.currentTime = targetTime
+      img.src = thumbnailUrl
+    })
+  }
 
-          // 计算视频方向
-          const videoWidth = video.videoWidth || 400
-          const videoHeight = video.videoHeight || 300
-          const aspectRatio = videoWidth / videoHeight
+  // 从视频文件抽取帧生成缩略图（降级方案）
+  const generateFromVideoFrame = async (canvas: HTMLCanvasElement, src: string) => {
+    const video = document.createElement('video')
+    video.crossOrigin = 'anonymous'
+    video.preload = 'metadata'
+    video.muted = true
 
-          let orientationClass = ''
-          if (aspectRatio > 1.2) {
-            orientationClass = 'landscape'
-          } else if (aspectRatio < 0.8) {
-            orientationClass = 'portrait'
-          } else {
-            orientationClass = 'square'
-          }
+    // 解析 URL
+    let videoUrl = src
+    if (src.startsWith('canvas:')) {
+      const withoutPrefix = src.substring(7)
+      const firstColonIndex = withoutPrefix.indexOf(':')
+      if (firstColonIndex !== -1) {
+        const library = withoutPrefix.substring(0, firstColonIndex)
+        const encodedPath = withoutPrefix.substring(firstColonIndex + 1)
+        videoUrl = `/api/media/file?library=${library}&path=${encodedPath}`
+      } else {
+        videoUrl = `/api/media/file?path=${withoutPrefix}`
+      }
+    }
 
-          // 将方向信息存储到 dataset
-          canvas.dataset.orientation = orientationClass
+    return new Promise<void>((resolve) => {
+      let hasResolved = false
 
-          // 固定 Canvas 尺寸
-          canvas.width = 300
-          canvas.height = 300
+      video.addEventListener('loadeddata', () => {
+        const targetTime = Math.min(1, Math.max(0.1, (video.duration || 1) / 3))
+        video.currentTime = targetTime
 
-          // 填充黑色背景
+        // 计算方向
+        const aspectRatio = (video.videoWidth || 400) / (video.videoHeight || 300)
+        let orientationClass = ''
+        if (aspectRatio > 1.2) {
+          orientationClass = 'landscape'
+        } else if (aspectRatio < 0.8) {
+          orientationClass = 'portrait'
+        } else {
+          orientationClass = 'square'
+        }
+        canvas.dataset.orientation = orientationClass
+
+        // 初始化 Canvas
+        canvas.width = 300
+        canvas.height = 300
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.fillStyle = '#000000'
+          ctx.fillRect(0, 0, canvas.width, canvas.height)
+        }
+      })
+
+      video.addEventListener('seeked', () => {
+        if (hasResolved) return
+        hasResolved = true
+
+        try {
           const ctx = canvas.getContext('2d')
           if (ctx) {
-            ctx.fillStyle = '#000000'
-            ctx.fillRect(0, 0, canvas.width, canvas.height)
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-            // 绘制加载提示
-            ctx.fillStyle = '#666'
-            ctx.font = '12px Arial'
-            ctx.textAlign = 'center'
-            ctx.fillText('Loading...', canvas.width / 2, canvas.height / 2)
+            // 保持比例居中绘制
+            const scale = Math.min(canvas.width / video.videoWidth, canvas.height / video.videoHeight)
+            const drawWidth = video.videoWidth * scale
+            const drawHeight = video.videoHeight * scale
+            const drawX = (canvas.width - drawWidth) / 2
+            const drawY = (canvas.height - drawHeight) / 2
+
+            ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight)
+            canvas.dataset.loaded = 'true'
           }
-        })
-
-        // 跳转到指定时间点
-        video.addEventListener('seeked', () => {
-          if (hasResolved) return
-          hasResolved = true
-
-          try {
-            const ctx = canvas.getContext('2d')
-            if (ctx) {
-              // 清空画布（透明背景）
-              ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-              // 绘制视频帧（保持比例，居中显示）
-              const scale = Math.min(canvas.width / video.videoWidth, canvas.height / video.videoHeight)
-              const drawWidth = video.videoWidth * scale
-              const drawHeight = video.videoHeight * scale
-              const drawX = (canvas.width - drawWidth) / 2
-              const drawY = (canvas.height - drawHeight) / 2
-
-              ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight)
-            }
-
-            resolve()
-          } catch (drawError) {
-            showVideoPlaceholder(canvas)
-            resolve()
-          }
-        })
-
-        // 错误处理
-        video.addEventListener('error', () => {
-          if (hasResolved) return
-          hasResolved = true
-
+          resolve()
+        } catch (drawError) {
           showVideoPlaceholder(canvas)
           resolve()
-        })
-
-        // 超时保护（10 秒）
-        setTimeout(() => {
-          if (!hasResolved) {
-            hasResolved = true
-            showVideoPlaceholder(canvas)
-            resolve()
-          }
-        }, 10000)
-
-        // 开始加载视频
-        video.src = videoUrl
+        }
       })
-    } catch (error) {
-      showVideoPlaceholder(canvas)
-    }
+
+      video.addEventListener('error', () => {
+        if (hasResolved) return
+        hasResolved = true
+        showVideoPlaceholder(canvas)
+        resolve()
+      })
+
+      // 超时保护（10 秒）
+      setTimeout(() => {
+        if (!hasResolved) {
+          hasResolved = true
+          showVideoPlaceholder(canvas)
+          resolve()
+        }
+      }, 10000)
+
+      video.src = videoUrl
+    })
   }
 
   // 显示占位符（通用）

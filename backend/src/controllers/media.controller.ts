@@ -3,6 +3,7 @@ import { createReadStream } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import sharp from 'sharp'
+import ffmpeg from 'fluent-ffmpeg'
 import { config } from '../config/index.js'
 import { getMimeType } from '../utils/mime.js'
 
@@ -170,9 +171,11 @@ export const mediaController = {
   /**
    * 获取视频/图片缩略图
    * 支持缓存验证（ETag）
+   * 视频使用 FFmpeg 生成，图片使用 Sharp 处理
    */
   async getThumbnail(ctx: any) {
     const filePath = Array.isArray(ctx.query.path) ? ctx.query.path[0] : (ctx.query.path as string)
+    const libraryIndex = parseInt(ctx.query.library || '0')
 
     try {
       // 验证文件路径
@@ -182,33 +185,40 @@ export const mediaController = {
         return
       }
 
-      // 解码 URL编码的路径
+      // 解码 URL 编码的路径
       let decodedPath = decodeURIComponent(filePath)
       
-      // 移除可能存在的前导斜杠，确保是相对路径
+      // 移除前导斜杠
       if (decodedPath.startsWith('/')) {
         decodedPath = decodedPath.substring(1)
       }
 
-      console.log('生成缩略图 - 请求路径:', {
-        original: filePath,
-        decoded: decodedPath
-      })
-
-      // 遍历所有媒体库路径，查找文件
+      // 优先从指定的媒体库查找
       let resolvedPath: string | null = null
       
-      for (const root of config.mediaPaths) {
-        const fullPath = path.join(root, decodedPath)
-        
+      // 先尝试从指定的媒体库查找
+      if (config.mediaPaths[libraryIndex]) {
+        const fullPath = path.join(config.mediaPaths[libraryIndex], decodedPath)
         try {
           await fs.access(fullPath)
           resolvedPath = fullPath
-          console.log('找到文件:', fullPath)
-          break
         } catch (error: any) {
-          // 文件不存在，继续尝试下一个媒体库
-          continue
+          // 指定库未找到，继续遍历所有库
+        }
+      }
+      
+      // 如果指定库没找到，遍历所有媒体库
+      if (!resolvedPath) {
+        for (const root of config.mediaPaths) {
+          const fullPath = path.join(root, decodedPath)
+          
+          try {
+            await fs.access(fullPath)
+            resolvedPath = fullPath
+            break
+          } catch (error: any) {
+            continue
+          }
         }
       }
 
@@ -229,7 +239,7 @@ export const mediaController = {
         .update(`${resolvedPath}-${stats.mtimeMs}-${stats.size}`)
         .digest('hex')
 
-      // 设置 HTTP 缓存头
+      // 设置 HTTP缓存头
       ctx.set('ETag', etag)
       ctx.set('Cache-Control', 'public, max-age=31536000') // 1 年
 
@@ -244,7 +254,7 @@ export const mediaController = {
       const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.heic', '.heif']
 
       if (imageExts.includes(ext)) {
-        // 图片文件：直接返回缩放后的版本
+        // 图片文件：使用 Sharp 直接返回缩放后的版本
         const thumbnail = await sharp(resolvedPath)
           .resize(300, 200, { fit: 'cover', position: 'center' })
           .jpeg({ quality: 80 })
@@ -253,17 +263,101 @@ export const mediaController = {
         ctx.type = 'image/jpeg'
         ctx.body = thumbnail
       } else {
-        // 视频文件或其他：返回默认图标（后续可扩展为生成视频截图）
-        ctx.status = 400
-        ctx.body = { error: '暂不支持该文件类型的缩略图生成' }
+        // 视频文件或其他：使用 FFmpeg 生成缩略图
+        const videoExts = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.wmv', '.flv', '.m4v', '.mpeg', '.mpg', '.3gp', '.3g2', '.rmvb', '.rm', '.asf', '.ts', '.mts']
+        
+        if (videoExts.includes(ext)) {
+          try {
+            const thumbnailBuffer = await generateVideoThumbnailWithFFmpeg(resolvedPath)
+            ctx.type = 'image/jpeg'
+            ctx.body = thumbnailBuffer
+          } catch (ffmpegError: any) {
+            ctx.status = 500
+            ctx.body = { 
+              error: '视频缩略图生成失败',
+              details: ffmpegError.message
+            }
+          }
+        } else {
+          // 不支持的文件类型
+          ctx.status = 400
+          ctx.body = { error: '暂不支持该文件类型的缩略图生成' }
+        }
       }
-    } catch (error) {
-      console.error('生成缩略图失败:', error)
+    } catch (error: any) {
       ctx.status = 500
       ctx.body = {
-        error: '生成缩略图失败',
-        details: (error as Error).message
+        error: '缩略图生成失败',
+        details: error.message
       }
     }
   }
+}
+
+/**
+ * 使用 FFmpeg 生成视频缩略图
+ * @param videoPath 视频文件路径
+ * @returns JPEG 格式的缩略图 Buffer
+ */
+async function generateVideoThumbnailWithFFmpeg(videoPath: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    
+    ffmpeg(videoPath)
+      // 在视频的第 2 秒处截取帧（如果视频短于 2 秒，则在 10% 位置）
+      .seekInput('00:00:02')
+      // 只处理 1 帧
+      .frames(1)
+      // 设置输出尺寸为 300x200，保持宽高比
+      .size('300x200')
+      // 输出格式为 JPEG
+      .outputOptions('-f image2pipe')
+      .outputOptions('-c:v mjpeg')
+      .outputOptions('-q:v 2') // 高质量 JPEG
+      .on('end', () => {
+        resolve(Buffer.concat(chunks))
+      })
+      .on('error', (error) => {
+        // 如果 seek 失败，尝试不指定时间点，直接取第一帧
+        if (error.message.includes('seek')) {
+          generateFirstFrameThumbnail(videoPath).then(resolve).catch(reject)
+        } else {
+          reject(error)
+        }
+      })
+      // 通过 pipe 输出到 stdout
+      .pipe()
+      .on('data', (chunk: Buffer) => {
+        chunks.push(chunk)
+      })
+  })
+}
+
+/**
+ * 降级方案：提取视频第一帧作为缩略图
+ * @param videoPath 视频文件路径
+ * @returns JPEG 格式的缩略图 Buffer
+ */
+async function generateFirstFrameThumbnail(videoPath: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = []
+    
+    ffmpeg(videoPath)
+      // 不 seek，直接取第一帧
+      .frames(1)
+      .size('300x200')
+      .outputOptions('-f image2pipe')
+      .outputOptions('-c:v mjpeg')
+      .outputOptions('-q:v 2')
+      .on('end', () => {
+        resolve(Buffer.concat(chunks))
+      })
+      .on('error', (error) => {
+        reject(error)
+      })
+      .pipe()
+      .on('data', (chunk: Buffer) => {
+        chunks.push(chunk)
+      })
+  })
 }
