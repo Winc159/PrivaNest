@@ -20,8 +20,7 @@ router.put('/:id/meta', mediaController.updateMeta)
 // 搜索
 router.get('/search', mediaController.search)
 
-// 注意：
-// - addLibraryPath: 已移除，如需添加媒体库请通过配置文件
-// - clearCache: 暂未实现
+// 缓存管理
+router.get('/clear-cache', mediaController.clearCache as any) // 清除缓存接口
 
 export default router

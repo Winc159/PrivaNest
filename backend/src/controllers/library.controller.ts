@@ -294,5 +294,23 @@ export const libraryController = {
         error: error.message
       }
     }
+  },
+
+  /**
+   * 清除目录缓存（用于文件变更后手动刷新）
+   */
+  async clearCache(ctx: any) {
+    const { path: requestedPath, library } = ctx.query
+
+    if (requestedPath) {
+      // 清除特定路径的缓存
+      const cacheKey = `${library || '0'}:${requestedPath}`
+      dirCache.delete(cacheKey)
+      ctx.body = { message: '已清除指定路径缓存', path: requestedPath }
+    } else {
+      // 清除所有缓存
+      dirCache.clear()
+      ctx.body = { message: '已清除所有缓存' }
+    }
   }
 }

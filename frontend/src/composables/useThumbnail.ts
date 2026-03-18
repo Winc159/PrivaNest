@@ -109,6 +109,31 @@ export function useThumbnail() {
       if (thumbnailCache.has(src)) {
         const cached = thumbnailCache.get(src)
         if (cached) {
+          const img = new Image()
+          await new Promise((resolve, reject) => {
+            img.onload = resolve
+            img.onerror = reject
+            img.src = cached
+          })
+
+          // 保持与原始生成一致的绘制逻辑
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            // 固定 Canvas 尺寸
+            canvas.width = 300
+            canvas.height = 300
+
+            // 清空画布（透明背景）
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+            // 使用 contain 模式，保持宽高比居中绘制
+            const scale = Math.min(canvas.width / img.width, canvas.height / img.height)
+            const drawWidth = img.width * scale
+            const drawHeight = img.height * scale
+            const drawX = (canvas.width - drawWidth) / 2
+            const drawY = (canvas.height - drawHeight) / 2
+            ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
+          }
 
           canvas.dataset.loaded = 'true'
           return
@@ -127,8 +152,8 @@ export function useThumbnail() {
         await generateImageThumbnail(canvas, src)
       }
 
-      // 加入缓存
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
+      // ✅ 加入缓存 - 使用 PNG 格式以支持透明背景（JPEG 不支持透明）
+      const dataUrl = canvas.toDataURL('image/png')
       cacheThumbnail(src, dataUrl)
     } catch (error) {
       console.error(`[缩略图生成失败] ${src}:`, error)
@@ -453,6 +478,14 @@ export function useThumbnail() {
 
   // 监听 Canvas 元素渲染（带并发控制和预加载）
   const observeCanvases = () => {
+    // 重要：清除所有 Canvas 的 processed 标记，允许重新观察
+    // 这样可以确保刷新或导航后，所有 Canvas 都能被重新处理
+    const allCanvases = document.querySelectorAll('.media-thumbnail')
+    allCanvases.forEach(canvas => {
+      delete (canvas as HTMLElement).dataset.processed
+    })
+    console.log('[observeCanvases] 已重置', allCanvases.length, '个 Canvas 的 processed 标记')
+
     const observer = new IntersectionObserver((entries) => {
       entries.forEach(entry => {
         if (entry.isIntersecting) {
@@ -483,11 +516,11 @@ export function useThumbnail() {
         const lastVisible = visibleCanvases[visibleCanvases.length - 1]
 
         // 预加载下一个元素（如果存在）
-        const allCanvases = Array.from(document.querySelectorAll('.media-thumbnail[data-src]'))
-        const lastIndex = allCanvases.indexOf(lastVisible)
+        const canvasesArray = Array.from(allCanvases)
+        const lastIndex = canvasesArray.indexOf(lastVisible)
 
-        if (lastIndex !== -1 && lastIndex + 1 < allCanvases.length) {
-          const nextCanvas = allCanvases[lastIndex + 1] as HTMLCanvasElement
+        if (lastIndex !== -1 && lastIndex + 1 < canvasesArray.length) {
+          const nextCanvas = canvasesArray[lastIndex + 1] as HTMLCanvasElement
           const nextSrc = nextCanvas.dataset.src
 
           if (nextSrc && !nextCanvas.dataset.processed && processingCount.value < maxConcurrent) {
