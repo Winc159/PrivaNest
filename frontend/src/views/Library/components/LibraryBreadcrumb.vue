@@ -24,8 +24,8 @@ const getBreadcrumbLabel = (segment: string) => {
   <div class="breadcrumb-bar">
     <n-breadcrumb separator="/">
       <n-breadcrumb-item 
-        v-for="(segment) in pathStack" 
-        :key="segment"
+        v-for="(segment, index) in pathStack" 
+        :key="`${index}-${segment}`"
         @click.stop="handleNavigate(segment)"
       >
         {{ getBreadcrumbLabel(segment) }}

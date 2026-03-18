@@ -182,17 +182,37 @@ const handleUploadSuccess = () => {
   handleRefresh(mediaStore)
 }
 
+// 从 URL 参数初始化路径栈
+const initPathFromURL = (path: string) => {
+  if (path && path !== '/') {
+    // 将路径拆分为层级数组，例如 /a/b/c -> ['/', '/a', '/a/b', '/a/b/c']
+    const pathSegments = path.split('/').filter(segment => segment !== '')
+    const stack: string[] = ['/']
+
+    for (let i = 0; i < pathSegments.length; i++) {
+      const path = '/' + pathSegments.slice(0, i + 1).join('/')
+      stack.push(path)
+    }
+
+    pathStack.value = stack
+  } else {
+    pathStack.value = ['/']
+  }
+}
+
 onMounted(async () => {
   await initLibraries()
 
   const initialPath = route.query.path as string || '/'
   // 从 URL 参数读取媒体库索引，默认为 0
   const initialLibrary = parseInt(route.query.library as string || '0')
-  
+
   // 设置初始媒体库
   currentLibrary.value = initialLibrary
-  
-  await loadFolders(initialPath, mediaStore)
+
+  // 注意：路径栈初始化由 watch 监听器负责（带 immediate 选项）
+  // 这里只需要加载文件，不要重置路径栈
+  await loadFolders(initialPath, mediaStore, false)
 
   nextTick(() => {
     observeCanvases()
@@ -212,29 +232,34 @@ onMounted(async () => {
     }
   `
   document.head.appendChild(styleElement)
-  
+
   // 注意：Naive UI 会自动处理 modal 的 aria-hidden 属性
   // 不需要手动移除，否则可能导致焦点管理问题
 })
 
-// 监听路由参数中的 library 变化
-watch(() => route.query.library, (newLibrary) => {
+// 监听路由参数变化（包括初次加载）
+watch([() => route.query.path, () => route.query.library], ([newPath, newLibrary]) => {
+  // 处理媒体库切换
   if (newLibrary !== undefined) {
     const libraryIndex = parseInt(newLibrary as string || '0')
     if (libraryIndex !== currentLibrary.value) {
       currentLibrary.value = libraryIndex
-      // 切换媒体库时重置路径为根目录
       pathStack.value = ['/']
-      loadFolders('/', mediaStore)
+      initPathFromURL('/')
+      loadFolders('/', mediaStore, true)  // 切换媒体库时重置路径栈
+      return
     }
   }
-})
 
-watch(() => route.query.path, (newPath) => {
-  if (newPath && newPath !== mediaStore.currentPath) {
-    navigateTo(newPath as string, mediaStore)
+  // 处理路径变化（包括初次加载）
+  // 移除 currentPath 检查，因为初次加载时 currentPath 可能还未设置
+  if (newPath) {
+    // 只在用户主动点击时才调用 navigateTo
+    // 这里是 URL 参数变化（如浏览器前进后退、刷新页面），只需要加载对应目录文件并重建路径栈
+    initPathFromURL(newPath as string)
+    mediaStore.fetchFolders(newPath as string, currentLibrary.value, 1)  // 直接调用 fetchFolders，不调用 loadFolders
   }
-})
+}, { immediate: true })
 
 watch(() => mediaStore.files, (newFiles) => {
   if (newFiles && newFiles.length > 0) {

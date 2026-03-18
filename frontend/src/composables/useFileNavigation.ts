@@ -49,8 +49,10 @@ export function useFileNavigation(router?: Router) {
   }
 
   // 加载文件夹
-  const loadFolders = async (path: string, mediaStore: any) => {
-    pathStack.value = ['/']
+  const loadFolders = async (path: string, mediaStore: any, resetStack: boolean = true) => {
+    if (resetStack) {
+      pathStack.value = ['/']
+    }
     await mediaStore.fetchFolders(path, currentLibrary.value, 1)
   }
 
@@ -59,7 +61,7 @@ export function useFileNavigation(router?: Router) {
     // 记录上一个路径
     previousPath.value = pathStack.value[pathStack.value.length - 1]
 
-    loadFolders(path, mediaStore)
+    loadFolders(path, mediaStore, false)  // 不重置路径栈，由外部管理
     if (!pathStack.value.includes(path)) {
       pathStack.value.push(path)
     }
@@ -75,7 +77,7 @@ export function useFileNavigation(router?: Router) {
       pathStack.value.pop()
       const prevPath = pathStack.value[pathStack.value.length - 1]
 
-      loadFolders(prevPath, mediaStore)
+      loadFolders(prevPath, mediaStore, false)  // 不重置路径栈，已经 pop 过了
 
     }
   }
@@ -105,7 +107,7 @@ export function useFileNavigation(router?: Router) {
       })
     }
 
-    loadFolders('/', mediaStore)
+    loadFolders('/', mediaStore, true)  // 切换媒体库时需要重置路径栈
   }
 
   // 滚动加载更多
