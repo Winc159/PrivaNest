@@ -32,6 +32,7 @@ const emit = defineEmits<{
       if (!val) emit('close')
     }"
     @update:current="(val) => emit('update:current', val)"
+    ignore-aria-hidden
   />
 </template>
 

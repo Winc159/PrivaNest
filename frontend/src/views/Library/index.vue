@@ -188,10 +188,10 @@ onMounted(async () => {
   const initialPath = route.query.path as string || '/'
   // 从 URL 参数读取媒体库索引，默认为 0
   const initialLibrary = parseInt(route.query.library as string || '0')
-
+  
   // 设置初始媒体库
   currentLibrary.value = initialLibrary
-
+  
   await loadFolders(initialPath, mediaStore)
 
   nextTick(() => {
@@ -212,31 +212,9 @@ onMounted(async () => {
     }
   `
   document.head.appendChild(styleElement)
-
-  // 监听并移除 aria-hidden 属性，防止可访问性警告
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      if (mutation.type === 'attributes' && mutation.attributeName === 'aria-hidden') {
-        const target = mutation.target as HTMLElement
-        // 只要发现 aria-hidden="true" 就立即移除
-        if (target.getAttribute('aria-hidden') === 'true') {
-          // 使用 requestAnimationFrame 在下一帧移除，避免干扰当前渲染
-          requestAnimationFrame(() => {
-            target.removeAttribute('aria-hidden')
-          })
-        }
-      }
-    })
-  })
-
-  observer.observe(document.body, {
-    attributes: true,
-    subtree: true,
-    attributeFilter: ['aria-hidden']
-  })
-
-    // 存储 observer 引用以便清理
-    ; (window as any).__ariaHiddenObserver = observer
+  
+  // 注意：Naive UI 会自动处理 modal 的 aria-hidden 属性
+  // 不需要手动移除，否则可能导致焦点管理问题
 })
 
 // 监听路由参数中的 library 变化

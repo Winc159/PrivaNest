@@ -63,7 +63,7 @@ const handleImageLoad = (event: Event) => {
 // 更新图片方向
 const updateImageOrientation = (width: number, height: number) => {
   const aspectRatio = width / height
-  
+
   // 放宽阈值，让更多竖排图能被正确识别
   if (aspectRatio > 1.1) {
     // 横拍图：宽/高 > 1.1（如 4:3=1.33, 16:9=1.78）
@@ -103,108 +103,73 @@ const getVideoFileUrl = computed(() => {
 // 前端 Canvas 抽取视频封面（优化版：优先使用后端缩略图）
 const generateVideoThumbnail = async () => {
   if (!videoCanvasRef.value || !isVideoFile.value || videoThumbnailGenerated.value) return
-  
-  try {
-    console.log('🎬 开始生成视频封面:', props.file.name)
-    
-    // 获取视频文件 URL
-    const videoUrl = getVideoFileUrl.value
-    if (!videoUrl) return
-    
-    // 获取后端缩略图 URL
-    const library = (props.file as any).library || 0
-    const thumbnailUrl = `/api/media/thumbnail?library=${library}&path=${encodeURIComponent(props.file.fullPath || props.file.path)}`
-    
-    // 创建 Canvas
-    const canvas = videoCanvasRef.value
-    const ctx = canvas.getContext('2d', { alpha: false })
-    
-    if (!ctx) {
-      console.warn('❌ Canvas context not available')
-      return
-    }
-    
-    // 先显示加载状态
-    canvas.width = 400
-    canvas.height = 300
-    ctx.fillStyle = '#1a1a1a'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
-    ctx.fillStyle = '#666'
-    ctx.font = '12px Arial'
-    ctx.textAlign = 'center'
-    ctx.fillText('Loading...', canvas.width / 2, canvas.height / 2)
-    
-    return new Promise<void>((resolve, reject) => {
-      let hasResolved = false
-      
-      // 方案 1：优先尝试加载后端生成的缩略图（快速）
+
+  // 获取视频文件 URL
+  const videoUrl = getVideoFileUrl.value
+  if (!videoUrl) return
+
+  // 获取后端缩略图 URL
+  const library = (props.file as any).library || 0
+  const thumbnailUrl = `/api/media/thumbnail?library=${library}&path=${encodeURIComponent(props.file.fullPath || props.file.path)}`
+
+  // 创建 Canvas
+  const canvas = videoCanvasRef.value
+  const ctx = canvas.getContext('2d', { alpha: false })
+
+  if (!ctx) {
+    return
+  }
+
+  // 先显示加载状态
+  canvas.width = 400
+  canvas.height = 300
+  ctx.fillStyle = '#1a1a1a'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.fillStyle = '#666'
+  ctx.font = '12px Arial'
+  ctx.textAlign = 'center'
+  ctx.fillText('Loading...', canvas.width / 2, canvas.height / 2)
+
+  return new Promise<void>((resolve, reject) => {
+    let hasResolved = false
+
+    // 方案 1：使用后端生成的缩略图（优先）
+    if (thumbnailUrl) {
       const img = new Image()
       img.crossOrigin = 'anonymous'
-      
-      img.onload = () => {
-        if (hasResolved) return
-        hasResolved = true
-        
-        try {
-          console.log('✅ 后端缩略图加载成功:', img.width, 'x', img.height)
-          
-          // 调整 Canvas 尺寸匹配缩略图比例
-          const aspectRatio = img.width / img.height
-          if (aspectRatio > 1.1) {
-            canvas.width = 400
-            canvas.height = 300
-          } else if (aspectRatio < 0.9) {
-            canvas.width = 300
-            canvas.height = 400
-          } else {
-            canvas.width = 300
-            canvas.height = 300
-          }
-          
-          // 绘制缩略图到 Canvas
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-          videoThumbnailGenerated.value = true
-          
-          console.log('✅ 视频封面生成成功（后端缩略图）:', props.file.name)
-          resolve()
-        } catch (drawError) {
-          console.error('❌ 绘制失败:', drawError)
-          showVideoPlaceholder(ctx)
-          resolve()
-        }
-      }
-      
-      img.onerror = () => {
-        if (hasResolved) return
-        hasResolved = true
-        
-        console.warn('❌ 后端缩略图加载失败，降级到前端生成:', props.file.name)
-        
-        // 降级方案：使用前端 Canvas 生成（原有逻辑）
-        fallbackToFrontendGeneration(canvas, ctx, videoUrl).then(resolve).catch(reject)
-      }
-      
-      // 开始加载后端缩略图
-      img.src = thumbnailUrl
-      
-      // 超时保护（8 秒）
-      setTimeout(() => {
+
+      const timeoutId = setTimeout(() => {
         if (!hasResolved) {
-          console.warn('⏰ 后端缩略图加载超时，降级到前端生成:', props.file.name)
           hasResolved = true
-          
-          if (ctx) {
-            showVideoPlaceholder(ctx)
-          }
-          
+          showVideoPlaceholder(ctx)
           videoThumbnailGenerated.value = true
           resolve()
         }
       }, 8000)
-    })
-  } catch (error) {
-    console.error('❌ 视频封面生成异常:', props.file.name, error)
-  }
+
+      img.onload = () => {
+        if (hasResolved) return
+        clearTimeout(timeoutId)
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+        canvas.dataset.loaded = 'true'
+        hasResolved = true
+        videoThumbnailGenerated.value = true
+        resolve()
+      }
+
+      img.onerror = () => {
+        if (hasResolved) return
+        clearTimeout(timeoutId)
+        // 进入降级方案
+        fallbackToFrontendGeneration(canvas, ctx, videoUrl).then(resolve).catch(reject)
+      }
+
+      img.src = thumbnailUrl
+    } else {
+      // 无后端缩略图，直接进入降级方案
+      fallbackToFrontendGeneration(canvas, ctx, videoUrl).then(resolve).catch(reject)
+    }
+  })
 }
 
 // 降级方案：前端 Canvas 生成（原有逻辑保持不变）
@@ -218,70 +183,61 @@ const fallbackToFrontendGeneration = async (
     video.crossOrigin = 'anonymous'
     video.preload = 'metadata'
     video.muted = true
-    
+
     let hasResolved = false
-    
+
     video.addEventListener('loadeddata', () => {
-      console.log('✅ 视频加载成功（前端降级），时长:', video.duration)
-      
-      // 计算截图时间点：第 1 秒或视频时长的 1/3
-      const targetTime = Math.min(1, Math.max(0.1, (video.duration || 1) / 3))
-      video.currentTime = targetTime
+      const duration = video.duration || 1
+      video.currentTime = Math.min(2, duration * 0.1)
     })
-    
+
     video.addEventListener('seeked', () => {
       if (hasResolved) return
       hasResolved = true
-      
+
       try {
-        console.log('⏩ 已跳转到时间点（前端降级）:', video.currentTime)
-        
         // 设置 Canvas 尺寸
         canvas.width = 400
         canvas.height = 300
-        
+
         // 绘制视频帧
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+        canvas.dataset.loaded = 'true'
         videoThumbnailGenerated.value = true
-        
-        console.log('✅ 视频封面生成成功（前端降级）:', props.file.name)
         resolve()
       } catch (drawError) {
-        console.error('❌ 绘制失败（前端降级）:', drawError)
         showVideoPlaceholder(ctx)
+        videoThumbnailGenerated.value = true
         resolve()
       }
     })
-    
+
     video.addEventListener('error', () => {
       if (hasResolved) return
       hasResolved = true
-      
-      console.warn('❌ 视频加载失败（前端降级）:', props.file.name)
-      
+
       if (ctx) {
         showVideoPlaceholder(ctx)
       }
-      
+
       videoThumbnailGenerated.value = true
       resolve()
     })
-    
+
     // 超时保护（10 秒）
     setTimeout(() => {
       if (!hasResolved) {
-        console.warn('⏰ 视频加载超时（前端降级）:', props.file.name)
         hasResolved = true
-        
+
         if (ctx) {
           showVideoPlaceholder(ctx)
         }
-        
+
         videoThumbnailGenerated.value = true
         resolve()
       }
     }, 10000)
-    
+
     // 开始加载视频
     video.src = videoUrl
   })
@@ -290,16 +246,16 @@ const fallbackToFrontendGeneration = async (
 // 显示视频占位图标
 const showVideoPlaceholder = (ctx: CanvasRenderingContext2D) => {
   const canvas = ctx.canvas
-  
+
   // 清空画布
   ctx.fillStyle = '#1a1a1a'
   ctx.fillRect(0, 0, canvas.width, canvas.height)
-  
+
   // 绘制播放按钮（三角形）
   const centerX = canvas.width / 2
   const centerY = canvas.height / 2
   const size = 30
-  
+
   ctx.fillStyle = '#18a058'
   ctx.beginPath()
   ctx.moveTo(centerX - size / 2, centerY - size / 2)
@@ -307,7 +263,7 @@ const showVideoPlaceholder = (ctx: CanvasRenderingContext2D) => {
   ctx.lineTo(centerX - size / 2, centerY + size / 2)
   ctx.closePath()
   ctx.fill()
-  
+
   // 绘制外圈
   ctx.strokeStyle = '#18a058'
   ctx.lineWidth = 3
@@ -328,17 +284,16 @@ onMounted(() => {
         }
       })
     }, { rootMargin: '100px' })
-    
+
     observer.observe(videoCanvasRef.value)
   }
 })
+
 </script>
 
 <template>
-  <div 
-    :class="['media-item', isFolder ? 'folder' : 'file', viewMode, isFolder ? 'square' : imageOrientation]"
-    @click="handleClick"
-  >
+  <div :class="['media-item', isFolder ? 'folder' : 'file', viewMode, isFolder ? 'square' : imageOrientation]"
+    @click="handleClick">
     <!-- 文件夹 -->
     <template v-if="isFolder">
       <div class="media-wrapper square folder-wrapper">
@@ -348,29 +303,19 @@ onMounted(() => {
       </div>
       <div class="media-name">{{ file.name }}</div>
     </template>
-    
+
     <!-- 文件 -->
     <template v-else>
       <div class="media-wrapper" :class="[imageOrientation, { 'video-wrapper': isVideoFile }]">
         <!-- Canvas 前端压缩（大图片和视频） -->
-        <canvas 
-          v-if="shouldGenerateThumbnail || isVideoFile" 
-          class="media-thumbnail"
+        <canvas v-if="shouldGenerateThumbnail || isVideoFile" class="media-thumbnail"
           :data-src="`/api/media/file?library=${(file as any).library || 0}&path=${encodeURIComponent(props.file.fullPath || props.file.path)}`"
-          ref="canvasRef"
-        />
-        
+          ref="canvasRef" />
+
         <!-- NImage 组件加载小图片 -->
-        <n-image
-          v-else-if="thumbnailUrl && !thumbnailUrl.startsWith('canvas:')"
-          :src="thumbnailUrl"
-          :alt="file.name"
-          class="media-thumbnail"
-          :object-fit="imageFit"
-          @load="handleImageLoad"
-          preview-disabled
-        />
-        
+        <n-image v-else-if="thumbnailUrl && !thumbnailUrl.startsWith('canvas:')" :src="thumbnailUrl" :alt="file.name"
+          class="media-thumbnail" :object-fit="imageFit" @load="handleImageLoad" preview-disabled />
+
         <!-- 降级：显示图标（仅在 Canvas 生成失败时） -->
         <n-icon v-else-if="isVideoFile && !shouldGenerateThumbnail" class="video-icon" size="64" color="#18a058">
           <VideocamOutline />
@@ -386,7 +331,7 @@ onMounted(() => {
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
-  
+
   // 网格模式 - macOS Finder 风格
   &.grid {
     display: flex;
@@ -394,7 +339,7 @@ onMounted(() => {
     align-items: center;
     height: 100%;
     justify-content: space-between;
-    
+
     .media-wrapper {
       position: relative;
       width: 100%;
@@ -402,61 +347,62 @@ onMounted(() => {
       overflow: hidden;
       background: transparent; // 透明背景，无颜色
       transition: all 0.3s ease;
-      
+
       // 横拍图容器：4:3 比例
       &.landscape {
         padding-top: 2cqh; // 宽/高 = 4/3 ≈ 1.33
       }
-      
+
       // 竖拍图容器：4:3 比例
       &.portrait {
         padding-top: 25%; // 统一为 4:3
       }
-      
+
       // 正方形图容器：4:3 比例
       &.square {
         padding-top: 25%; // 统一为 4:3
       }
-      
+
       // 未加载时默认 4:3
       &:not(.landscape):not(.portrait):not(.square) {
         padding-top: 25%;
       }
-      
+
       // 视频文件样式（简约图标）
       &.video-wrapper {
         background: transparent; // 透明背景
-        
+
         .video-icon {
           font-size: 48px;
           transition: transform 0.3s ease;
         }
-        
+
         &:hover {
           .video-icon {
             transform: scale(1.1);
           }
         }
       }
+
       // 文件夹样式（简约图标）
       &.folder-wrapper {
         display: flex;
         align-items: center;
         justify-content: center;
         background: transparent; // 透明背景
-        
+
         .folder-icon {
           font-size: 48px;
           transition: transform 0.3s ease;
         }
-        
+
         &:hover {
           .folder-icon {
             transform: scale(1.1);
           }
         }
       }
-      
+
       .media-thumbnail {
         top: 0;
         left: 0;
@@ -464,7 +410,7 @@ onMounted(() => {
         height: 100%;
         transition: transform 0.3s ease;
       }
-      
+
       // 图片 hover 效果：只有图片本身浮起
       &:hover {
         .media-thumbnail {
@@ -472,7 +418,7 @@ onMounted(() => {
         }
       }
     }
-    
+
     .media-name {
       margin-top: 8px;
       font-size: 13px;
@@ -490,7 +436,7 @@ onMounted(() => {
       width: 100%;
     }
   }
-  
+
   // 列表模式
   &.list {
     display: flex;
@@ -500,12 +446,12 @@ onMounted(() => {
     background: white;
     border-radius: 8px;
     transition: all 0.2s ease;
-    
+
     &:hover {
       background: #f8f9fa;
       transform: translateX(4px);
     }
-    
+
     .media-wrapper {
       position: relative;
       width: 100px;
@@ -514,7 +460,7 @@ onMounted(() => {
       overflow: hidden;
       background: transparent; // 列表模式也使用透明背景
       border-radius: 8px;
-      
+
       .media-thumbnail {
         position: absolute;
         top: 0;
@@ -524,7 +470,7 @@ onMounted(() => {
         object-fit: contain;
       }
     }
-    
+
     .media-name {
       flex: 1;
       font-size: 14px;
@@ -535,7 +481,7 @@ onMounted(() => {
       white-space: nowrap;
     }
   }
-  
+
   // 文件夹名称特殊样式
   &.folder.grid {
     .media-name {

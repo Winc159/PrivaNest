@@ -67,26 +67,16 @@ export function useFileNavigation(router?: Router) {
     // 注意：不暂停当前目录的缩略图生成
     // 视口内的文件（P0）和预加载（P1）应该正常进行
     // 只有当切换媒体库或长时间离开时才考虑暂停
-    console.log(`[导航] 进入新目录：${path}，缩略图继续加载`)
   }
 
   // 返回上一级
-  const goBack = (mediaStore: any, thumbnailControl?: any) => {
+  const goBack = (mediaStore: any) => {
     if (pathStack.value.length > 1) {
       pathStack.value.pop()
       const prevPath = pathStack.value[pathStack.value.length - 1]
 
-      // 判断是否是返回刚才访问过的目录
-      const isReturning = prevPath === previousPath.value
-
       loadFolders(prevPath, mediaStore)
 
-      // 如果是返回原目录，恢复缩略图生成；否则保持正常加载
-      if (thumbnailControl && !isReturning) {
-        console.log(`[导航] 返回新目录：${prevPath}，缩略图继续加载`)
-      } else if (thumbnailControl && isReturning) {
-        console.log(`[导航] 返回原目录：${prevPath}`)
-      }
     }
   }
 
@@ -103,7 +93,6 @@ export function useFileNavigation(router?: Router) {
     // 切换媒体库时，暂停旧的缩略图生成并清空队列
     if (thumbnailControl) {
       thumbnailControl.clearPausedQueue()
-      console.log(`[媒体库切换] 清空缩略图队列`)
     }
 
     // 同步更新 URL 参数

@@ -15,15 +15,15 @@ import { LRUCache } from '@/utils/lruCache'
 export function useThumbnail() {
 
   const canvasRefs = ref<HTMLCanvasElement[]>([])
-  
+
   // LRU 缓存：存储已生成的缩略图
   const thumbnailCache = new LRUCache<string, string>(100)
-  
+
   // 并发控制
   const processingCount = ref(0)
   const maxConcurrent = 5
   const processQueue: Array<() => void> = []
-  
+
   // 暂停状态管理
   const isPaused = ref(false)
   const pausedQueue: Array<{ canvas: HTMLCanvasElement; src: string; resolve: () => void; reject: (err: any) => void }> = []
@@ -61,20 +61,21 @@ export function useThumbnail() {
   // 智能获取缩略图 URL
   const getThumbnailUrl = (file: any): string | null => {
     const sizeBytes = parseFileSize(file.size || '0 B')
+    const library = file.library || 0
 
     // 1. 小图片（<500KB）：直接返回原图路径，用 CSS 缩放
     if (isImageFile(file) && sizeBytes < 500 * 1024) {
-      return `/api/media/file?path=${encodeURIComponent(file.fullPath || file.path)}`
+      return `/api/media/file?library=${library}&path=${encodeURIComponent(file.fullPath || file.path)}`
     }
 
     // 2. 大图片（>=500KB）：使用 Canvas 前端压缩
     if (isImageFile(file) && sizeBytes >= 500 * 1024) {
-      return `canvas:${encodeURIComponent(file.fullPath || file.path)}`
+      return `canvas:${library}:${encodeURIComponent(file.fullPath || file.path)}`
     }
 
     // 3. 视频文件：统一使用 Canvas 前端生成封面
     if (isVideoFile(file)) {
-      return `canvas:${encodeURIComponent(file.fullPath || file.path)}`
+      return `canvas:${library}:${encodeURIComponent(file.fullPath || file.path)}`
     }
 
     return null
@@ -105,20 +106,13 @@ export function useThumbnail() {
   const generateThumbnail = async (canvas: HTMLCanvasElement, src: string) => {
     try {
       // 检查缓存
-      const cacheKey = src
-      const cached = getCachedThumbnail(cacheKey)
-      if (cached) {
-        console.log(`[缓存命中] ${src}`)
-        // 从缓存加载
-        const img = new Image()
-        img.onload = () => {
-          const ctx = canvas.getContext('2d')
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-          }
+      if (thumbnailCache.has(src)) {
+        const cached = thumbnailCache.get(src)
+        if (cached) {
+
+          canvas.dataset.loaded = 'true'
+          return
         }
-        img.src = cached
-        return
       }
 
       // 判断是否为视频文件
@@ -132,10 +126,10 @@ export function useThumbnail() {
         // 图片缩略图生成
         await generateImageThumbnail(canvas, src)
       }
-      
+
       // 加入缓存
       const dataUrl = canvas.toDataURL('image/jpeg', 0.8)
-      cacheThumbnail(cacheKey, dataUrl)
+      cacheThumbnail(src, dataUrl)
     } catch (error) {
       console.error(`[缩略图生成失败] ${src}:`, error)
       throw error
@@ -145,13 +139,6 @@ export function useThumbnail() {
   // 带并发控制的缩略图生成（增强版：支持暂停）
   const generateThumbnailWithControl = async (canvas: HTMLCanvasElement, src: string) => {
     return new Promise<void>((resolve, reject) => {
-      // 如果处于暂停状态，加入等待队列
-      if (isPaused.value) {
-        console.log(`[暂停] ${src} - 加入等待队列`)
-        pausedQueue.push({ canvas, src, resolve, reject })
-        return
-      }
-
       // 超时保护
       const timeoutId = setTimeout(() => {
         console.warn(`[超时] ${src} - 8 秒未生成成功`)
@@ -178,11 +165,16 @@ export function useThumbnail() {
         }
       }
 
+      // 如果暂停，加入等待队列
+      if (isPaused.value) {
+        pausedQueue.push({ canvas, src, resolve, reject })
+        return
+      }
+
       // 检查并发数
       if (processingCount.value >= maxConcurrent) {
         // 加入队列
         processQueue.push(execute)
-        console.log(`[排队等待] ${src} - 当前队列长度：${processQueue.length}`)
       } else {
         // 立即执行
         processingCount.value++
@@ -194,14 +186,12 @@ export function useThumbnail() {
   // 暂停缩略图生成
   const pauseGeneration = () => {
     isPaused.value = true
-    console.log(`[暂停] 缩略图生成已暂停，等待队列长度：${pausedQueue.length}`)
   }
 
   // 恢复缩略图生成
   const resumeGeneration = () => {
     isPaused.value = false
-    console.log(`[恢复] 缩略图生成已恢复，处理等待队列：${pausedQueue.length}`)
-    
+
     // 处理所有等待的任务
     while (pausedQueue.length > 0 && processingCount.value < maxConcurrent) {
       const task = pausedQueue.shift()
@@ -214,11 +204,11 @@ export function useThumbnail() {
     }
   }
 
-  // 清空等待队列（用于离开页面时）
+  // 清空等待队列（用于切换媒体库时）
   const clearPausedQueue = () => {
-    const count = pausedQueue.length
-    pausedQueue.splice(0, pausedQueue.length)
-    console.log(`[清理] 清空等待队列：${count} 个任务`)
+    pausedQueue.length = 0
+    processQueue.length = 0
+    processingCount.value = 0
   }
 
   // 图片缩略图生成
@@ -227,12 +217,30 @@ export function useThumbnail() {
       const img = new Image()
       img.crossOrigin = 'anonymous'
 
+      // 处理 canvas: 前缀的 URL（格式：canvas:${library}:${encodedPath}）
+      let imageUrl = src
+      if (src.startsWith('canvas:')) {
+        // 移除 canvas: 前缀
+        const withoutPrefix = src.substring(7)
+        // 分割 library 和 path
+        const firstColonIndex = withoutPrefix.indexOf(':')
+        if (firstColonIndex !== -1) {
+          const library = withoutPrefix.substring(0, firstColonIndex)
+          const encodedPath = withoutPrefix.substring(firstColonIndex + 1)
+          // 构建实际的 API URL
+          imageUrl = `/api/media/file?library=${library}&path=${encodedPath}`
+        } else {
+          // 兼容旧格式（没有 library）
+          imageUrl = `/api/media/file?path=${withoutPrefix}`
+        }
+      }
+
       await new Promise((resolve, reject) => {
         img.onload = resolve
         img.onerror = () => {
-          reject(new Error(`图片加载失败：${src}`))
+          reject(new Error(`图片加载失败：${imageUrl}`))
         }
-        img.src = src
+        img.src = imageUrl
       })
 
       // 计算宽高比，智能选择显示策略
@@ -283,6 +291,24 @@ export function useThumbnail() {
       video.crossOrigin = 'anonymous'
       video.preload = 'metadata'
       video.muted = true
+
+      // 处理 canvas: 前缀的 URL（格式：canvas:${library}:${encodedPath}）
+      let videoUrl = src
+      if (src.startsWith('canvas:')) {
+        // 移除 canvas: 前缀
+        const withoutPrefix = src.substring(7)
+        // 分割 library 和 path
+        const firstColonIndex = withoutPrefix.indexOf(':')
+        if (firstColonIndex !== -1) {
+          const library = withoutPrefix.substring(0, firstColonIndex)
+          const encodedPath = withoutPrefix.substring(firstColonIndex + 1)
+          // 构建实际的 API URL
+          videoUrl = `/api/media/file?library=${library}&path=${encodedPath}`
+        } else {
+          // 兼容旧格式（没有 library）
+          videoUrl = `/api/media/file?path=${withoutPrefix}`
+        }
+      }
 
       return new Promise<void>((resolve) => {
         let hasResolved = false
@@ -375,7 +401,7 @@ export function useThumbnail() {
         }, 10000)
 
         // 开始加载视频
-        video.src = src
+        video.src = videoUrl
       })
     } catch (error) {
       showVideoPlaceholder(canvas)
@@ -445,27 +471,26 @@ export function useThumbnail() {
           }
         }
       })
-      
+
       // 预加载策略：检测视口附近的元素
       // 获取所有可见的 canvas
       const visibleCanvases = entries
         .filter(e => e.isIntersecting && e.target instanceof HTMLCanvasElement)
         .map(e => e.target as HTMLCanvasElement)
-      
+
       if (visibleCanvases.length > 0) {
         // 找到视口中的最后一个可见元素
         const lastVisible = visibleCanvases[visibleCanvases.length - 1]
-        
+
         // 预加载下一个元素（如果存在）
         const allCanvases = Array.from(document.querySelectorAll('.media-thumbnail[data-src]'))
         const lastIndex = allCanvases.indexOf(lastVisible)
-        
+
         if (lastIndex !== -1 && lastIndex + 1 < allCanvases.length) {
           const nextCanvas = allCanvases[lastIndex + 1] as HTMLCanvasElement
           const nextSrc = nextCanvas.dataset.src
-          
+
           if (nextSrc && !nextCanvas.dataset.processed && processingCount.value < maxConcurrent) {
-            console.log(`[预加载] 提前加载下一个缩略图：${nextSrc}`)
             nextCanvas.dataset.processed = 'true'
             generateThumbnailWithControl(nextCanvas, nextSrc)
               .catch(err => console.warn(`[预加载失败] ${nextSrc}:`, err))

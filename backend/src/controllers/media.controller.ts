@@ -110,8 +110,8 @@ export const mediaController = {
 
         // 处理流的错误事件 - 区分真实错误和正常断开
         stream.on('error', (error: any) => {
-          // EPIPE 错误表示客户端提前断开（如拖动进度条），这是正常现象，静默处理
-          if (error.code !== 'EPIPE') {
+          // EPIPE 和 ERR_STREAM_PREMATURE_CLOSE 错误表示客户端提前断开（如拖动进度条），这是正常现象，静默处理
+          if (error.code !== 'EPIPE' && error.code !== 'ERR_STREAM_PREMATURE_CLOSE') {
             console.error('Range stream error:', error.message)
           }
           if (!stream.destroyed) {
@@ -140,8 +140,8 @@ export const mediaController = {
 
         // 处理流的错误事件 - 区分真实错误和正常断开
         stream.on('error', (error: any) => {
-          // EPIPE 错误表示客户端提前断开，这是正常现象，静默处理
-          if (error.code !== 'EPIPE') {
+          // EPIPE 和 ERR_STREAM_PREMATURE_CLOSE 错误表示客户端提前断开，这是正常现象，静默处理
+          if (error.code !== 'EPIPE' && error.code !== 'ERR_STREAM_PREMATURE_CLOSE') {
             console.error('Stream error:', error.message)
           }
           if (!stream.destroyed) {
@@ -183,22 +183,44 @@ export const mediaController = {
       }
 
       // 解码 URL编码的路径
-      const decodedPath = decodeURIComponent(filePath)
-
-      // 安全检查：确保路径在媒体库范围内
-      const resolvedPath = path.resolve(decodedPath)
-      const isWithinLibrary = config.mediaPaths.some(root =>
-        resolvedPath.startsWith(path.resolve(root))
-      )
-
-      if (!isWithinLibrary) {
-        ctx.status = 403
-        ctx.body = { error: '禁止访问该文件路径' }
-        return
+      let decodedPath = decodeURIComponent(filePath)
+      
+      // 移除可能存在的前导斜杠，确保是相对路径
+      if (decodedPath.startsWith('/')) {
+        decodedPath = decodedPath.substring(1)
       }
 
-      // 检查文件是否存在
-      await fs.access(resolvedPath)
+      console.log('生成缩略图 - 请求路径:', {
+        original: filePath,
+        decoded: decodedPath
+      })
+
+      // 遍历所有媒体库路径，查找文件
+      let resolvedPath: string | null = null
+      
+      for (const root of config.mediaPaths) {
+        const fullPath = path.join(root, decodedPath)
+        
+        try {
+          await fs.access(fullPath)
+          resolvedPath = fullPath
+          console.log('找到文件:', fullPath)
+          break
+        } catch (error: any) {
+          // 文件不存在，继续尝试下一个媒体库
+          continue
+        }
+      }
+
+      if (!resolvedPath) {
+        ctx.status = 404
+        ctx.body = { 
+          error: '文件不存在',
+          requestedPath: decodedPath,
+          searchedLibraries: config.mediaPaths.length
+        }
+        return
+      }
 
       // 生成 ETag 用于缓存验证
       const stats = await fs.stat(resolvedPath)

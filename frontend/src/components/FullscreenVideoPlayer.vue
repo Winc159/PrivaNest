@@ -1,7 +1,7 @@
 <template>
   <n-modal v-model:show="showModal" :close-on-esc="false" :mask-closable="false" preset="card"
     class="fullscreen-video-player" content-style="padding: 0; display: flex;" header-style="display: none;"
-    :closable="false">
+    :closable="false" ignore-aria-hidden>
     <div @mousemove="handleMouseMove" class="player-wrapper">
 
       <!-- 控制栏 - 鼠标移动时显示，3 秒后自动隐藏 -->
@@ -36,7 +36,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { NModal, NButton, NIcon } from 'naive-ui'
 import { CloseOutline, ChevronBackOutline, ChevronForwardOutline } from '@vicons/ionicons5'
 import VideoPlayer from '@/components/VideoPlayer.vue'
@@ -114,82 +114,8 @@ const handleReady = (player: any) => {
   emit('ready', player)
 }
 
-// 监听 Modal 打开，移除 aria-hidden
-const handleOpenModal = () => {
-  nextTick(() => {
-    // 移除所有 modal 相关的 aria-hidden
-    const modalElements = document.querySelectorAll('[aria-hidden="true"]')
-    modalElements.forEach(el => {
-      el.removeAttribute('aria-hidden')
-    })
-
-    // 同时处理可能被标记为 inert 的元素
-    const inertElements = document.querySelectorAll('[inert]')
-    inertElements.forEach(el => {
-      el.removeAttribute('inert')
-    })
-  })
-}
-
-// 使用 MutationObserver 持续监控并移除 aria-hidden
-let observer: MutationObserver | null = null
-
-const initAriaHiddenObserver = () => {
-  observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      if (mutation.type === 'attributes' && mutation.attributeName === 'aria-hidden') {
-        const target = mutation.target as HTMLElement
-        if (target.getAttribute('aria-hidden') === 'true') {
-          // 检查是否是 modal 背景元素
-          if (target.closest('.n-modal-mask') || target.closest('.fullscreen-video-player')) {
-            requestAnimationFrame(() => {
-              target.removeAttribute('aria-hidden')
-            })
-          }
-        }
-      }
-
-      // 同时处理 inert 属性的变化
-      if (mutation.type === 'attributes' && mutation.attributeName === 'inert') {
-        const target = mutation.target as HTMLElement
-        if (target.hasAttribute('inert')) {
-          // 检查是否是 modal 背景元素
-          if (target.closest('.n-modal-mask') || target.closest('.fullscreen-video-player')) {
-            requestAnimationFrame(() => {
-              target.removeAttribute('inert')
-            })
-          }
-        }
-      }
-    })
-  })
-
-  observer.observe(document.body, {
-    attributes: true,
-    subtree: true,
-    attributeFilter: ['aria-hidden', 'inert']
-  })
-}
-
-// 使用 watch 监听 showModal 变化
-import { watch } from 'vue'
-watch(showModal, (newVal) => {
-  if (newVal) {
-    handleOpenModal()
-  }
-}, { immediate: false })
-
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
-
-  // 初始化观察者以处理动态 aria-hidden
-  if (showModal.value) {
-    handleOpenModal()
-  }
-  initAriaHiddenObserver()
-
-  // 初始显示控制栏（可选，如果需要一开始就显示）
-  // handleMouseMove()
 })
 
 onUnmounted(() => {
@@ -199,12 +125,6 @@ onUnmounted(() => {
   if (controlBarTimer) {
     clearTimeout(controlBarTimer)
     controlBarTimer = null
-  }
-
-  // 清理观察者
-  if (observer) {
-    observer.disconnect()
-    observer = null
   }
 })
 
