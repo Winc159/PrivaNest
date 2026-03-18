@@ -19,7 +19,6 @@ const routes = [
     component: () => import('@/views/Library/index.vue'),
     meta: { title: '媒体库', requiresAuth: true }
   },
-  // 独立播放器页面已弃用，改为 Library 页面内 Modal 播放
   {
     path: '/settings',
     name: 'Settings',
@@ -36,7 +35,7 @@ const router = createRouter({
 // 路由守卫
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('token')
-  
+
   if (to.meta.requiresAuth && !token) {
     next('/login')
   } else {
