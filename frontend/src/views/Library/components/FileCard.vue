@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { NIcon, NImage } from 'naive-ui'
 import { FolderOutline } from '@vicons/ionicons5'
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue'
+import { useThumbnail } from '@/composables/useThumbnail'
 
 interface FileData {
   id: string
@@ -10,33 +11,83 @@ interface FileData {
   fullPath?: string
   size?: string
   ext?: string
+  library?: number
 }
 
 interface Props {
   file: FileData
   isFolder?: boolean
   viewMode?: 'grid' | 'list'
-  thumbnailUrl?: string | null
-  shouldGenerateThumbnail?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isFolder: false,
-  viewMode: 'grid',
-  thumbnailUrl: null,
-  shouldGenerateThumbnail: false
+  viewMode: 'grid'
 })
 
 const emit = defineEmits<{
   click: [file: FileData]
 }>()
 
+const { getThumbnailUrl } = useThumbnail()
+
 const imageFit = ref<'cover' | 'contain'>('cover')
+const imageContainerRef = ref<HTMLElement | null>(null)
+const isLoaded = ref(false)
+let observer: IntersectionObserver | null = null
+
+// 计算真实的缩略图 URL（只在需要时才获取）
+const thumbnailUrl = computed(() => {
+  if (!props.file) return null
+  return getThumbnailUrl(props.file)
+})
 
 const handleClick = () => {
   emit('click', props.file)
 }
 
+// 初始化 IntersectionObserver 实现懒加载
+onMounted(async () => {
+  // 文件夹或不需要缩略图的文件直接跳过
+  if (props.isFolder || !thumbnailUrl.value) {
+    isLoaded.value = true
+    return
+  }
+
+  // 等待 DOM 更新
+  await nextTick()
+
+  // 创建观察器
+  observer = new IntersectionObserver(
+    (entries) => {
+      const entry = entries[0]
+      if (entry?.isIntersecting && !isLoaded.value) {
+        isLoaded.value = true
+        
+        // 断开观察
+        observer?.disconnect()
+        observer = null
+      }
+    },
+    {
+      rootMargin: '100px',
+      threshold: 0.1
+    }
+  )
+
+  // 观察容器元素
+  if (imageContainerRef.value) {
+    observer.observe(imageContainerRef.value)
+  }
+})
+
+// 组件卸载时清理
+onUnmounted(() => {
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+})
 </script>
 
 <template>
@@ -53,10 +104,16 @@ const handleClick = () => {
 
     <!-- 文件 -->
     <template v-else>
-      <div class="media-wrapper">
-        <!-- 统一使用 NImage 组件加载缩略图 -->
-        <n-image v-if="thumbnailUrl" :src="thumbnailUrl" :alt="file.name" class="media-thumbnail" :object-fit="imageFit"
-          preview-disabled />
+      <div ref="imageContainerRef" class="media-wrapper">
+        <!-- 使用占位符 + 真实图片的懒加载方案 -->
+        <n-image
+          v-if="thumbnailUrl && isLoaded"
+          :src="thumbnailUrl"
+          :alt="file.name"
+          class="media-thumbnail"
+          :object-fit="imageFit"
+          preview-disabled
+        />
       </div>
       <div class="media-name">{{ file.name }}</div>
     </template>

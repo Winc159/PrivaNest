@@ -61,16 +61,14 @@ const handleFileClick = (file: FileData) => {
         </div>
         
         <!-- 文件列表 -->
-        <div v-for="file in files" :key="file.id" class="grid-item">
-          <file-card 
-            :file="file"
-            :is-folder="false"
-            :view-mode="viewMode"
-            :thumbnail-url="getThumbnailUrl(file)"
-            :should-generate-thumbnail="shouldGenerateThumbnail(file)"
-            @click="handleFileClick"
-          />
-        </div>
+        <file-card 
+          v-for="file in files" 
+          :key="file.id"
+          :file="file"
+          :is-folder="false"
+          :view-mode="viewMode"
+          @click="handleFileClick"
+        />
       </div>
       
       <!-- 列表模式 -->
@@ -92,8 +90,6 @@ const handleFileClick = (file: FileData) => {
           :file="file"
           :is-folder="false"
           :view-mode="viewMode"
-          :thumbnail-url="getThumbnailUrl(file)"
-          :should-generate-thumbnail="shouldGenerateThumbnail(file)"
           @click="handleFileClick"
         />
       </div>

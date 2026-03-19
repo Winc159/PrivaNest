@@ -60,21 +60,14 @@ export function useThumbnail() {
 
   // 智能获取缩略图 URL
   const getThumbnailUrl = (file: any): string | null => {
-    const sizeBytes = parseFileSize(file.size || '0 B')
     const library = file.library || 0
 
-    // 1. 小图片（<500KB）：直接返回原图路径
-    if (isImageFile(file) && sizeBytes < 500 * 1024) {
-      return `/api/media/file?library=${library}&path=${encodeURIComponent(file.fullPath || file.path)}`
-    }
-
-    // 2. 大图片（>=500KB）：使用 Canvas 前端压缩
-    if (isImageFile(file) && sizeBytes >= 500 * 1024) {
-      // return `canvas:${library}:${encodeURIComponent(file.fullPath || file.path)}`
+    // 1. 图片文件：统一使用缩略图接口
+    if (isImageFile(file)) {
       return `/api/media/thumbnail?library=${library}&path=${encodeURIComponent(file.fullPath || file.path)}`
     }
 
-    // 3. 视频文件：优先使用后端 FFmpeg 生成缩略图
+    // 2. 视频文件：优先使用后端 FFmpeg 生成缩略图
     if (isVideoFile(file)) {
       return `/api/media/thumbnail?library=${library}&path=${encodeURIComponent(file.fullPath || file.path)}`
     }

@@ -309,22 +309,29 @@ export const mediaController = {
 /**
  * 使用 FFmpeg 生成视频缩略图
  * @param videoPath 视频文件路径
- * @returns JPEG 格式的缩略图 Buffer
+ * @returns PNG 格式的缩略图 Buffer
  */
 async function generateVideoThumbnailWithFFmpeg(videoPath: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
+    let ffmpegProcess: any = null
 
-    ffmpeg(videoPath)
-      // 在视频的第 2 秒处截取帧（如果视频短于 2 秒，则在 10% 位置）
-      .seekInput('00:00:02')
+    // 创建 FFmpeg 进程，添加超时控制（10 秒）
+    const timeoutId = setTimeout(() => {
+      if (ffmpegProcess) {
+        ffmpegProcess.kill('SIGKILL')
+      }
+      reject(new Error('缩略图生成超时'))
+    }, 10000)
+
+    ffmpegProcess = ffmpeg(videoPath)
       // 只处理 1 帧
       .frames(1)
-      // 输出格式为 Png
-      .outputOptions('-f image2pipe')
+      // 输出格式为 PNG
       .outputOptions('-f image2pipe')
       .outputOptions('-c:v png')
       .on('end', async () => {
+        clearTimeout(timeoutId)
         try {
           const rawBuffer = Buffer.concat(chunks)
 
@@ -344,12 +351,10 @@ async function generateVideoThumbnailWithFFmpeg(videoPath: string): Promise<Buff
         }
       })
       .on('error', (error) => {
-        // 如果 seek 失败，尝试不指定时间点，直接取第一帧
-        if (error.message.includes('seek')) {
-          generateFirstFrameThumbnail(videoPath).then(resolve).catch(reject)
-        } else {
-          reject(error)
-        }
+        clearTimeout(timeoutId)
+        // FFmpeg 失败时自动降级到提取第一帧
+        console.log('FFmpeg 缩略图生成失败，尝试降级方案:', error.message)
+        generateFirstFrameThumbnail(videoPath).then(resolve).catch(reject)
       })
       // 通过 pipe 输出到 stdout
       .pipe()
@@ -362,20 +367,29 @@ async function generateVideoThumbnailWithFFmpeg(videoPath: string): Promise<Buff
 /**
  * 降级方案：提取视频第一帧作为缩略图
  * @param videoPath 视频文件路径
- * @returns JPEG 格式的缩略图 Buffer
+ * @returns PNG 格式的缩略图 Buffer
  */
 async function generateFirstFrameThumbnail(videoPath: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
+    let ffmpegProcess: any = null
 
-    ffmpeg(videoPath)
+    // 添加超时控制（10 秒）
+    const timeoutId = setTimeout(() => {
+      if (ffmpegProcess) {
+        ffmpegProcess.kill('SIGKILL')
+      }
+      reject(new Error('降级缩略图生成超时'))
+    }, 10000)
+
+    ffmpegProcess = ffmpeg(videoPath)
       // 不 seek，直接取第一帧
       .frames(1)
-      .size('200x200')
       .outputOptions('-f image2pipe')
       .outputOptions('-c:v mjpeg')
       .outputOptions('-q:v 2')
       .on('end', async () => {
+        clearTimeout(timeoutId)
         try {
           const rawBuffer = Buffer.concat(chunks)
 
@@ -395,6 +409,8 @@ async function generateFirstFrameThumbnail(videoPath: string): Promise<Buffer> {
         }
       })
       .on('error', (error) => {
+        clearTimeout(timeoutId)
+        console.error('降级缩略图生成失败:', error.message)
         reject(error)
       })
       .pipe()
