@@ -187,7 +187,7 @@ export const mediaController = {
 
       // 解码 URL 编码的路径
       let decodedPath = decodeURIComponent(filePath)
-      
+
       // 移除前导斜杠
       if (decodedPath.startsWith('/')) {
         decodedPath = decodedPath.substring(1)
@@ -195,7 +195,7 @@ export const mediaController = {
 
       // 优先从指定的媒体库查找
       let resolvedPath: string | null = null
-      
+
       // 先尝试从指定的媒体库查找
       if (config.mediaPaths[libraryIndex]) {
         const fullPath = path.join(config.mediaPaths[libraryIndex], decodedPath)
@@ -206,12 +206,12 @@ export const mediaController = {
           // 指定库未找到，继续遍历所有库
         }
       }
-      
+
       // 如果指定库没找到，遍历所有媒体库
       if (!resolvedPath) {
         for (const root of config.mediaPaths) {
           const fullPath = path.join(root, decodedPath)
-          
+
           try {
             await fs.access(fullPath)
             resolvedPath = fullPath
@@ -224,7 +224,7 @@ export const mediaController = {
 
       if (!resolvedPath) {
         ctx.status = 404
-        ctx.body = { 
+        ctx.body = {
           error: '文件不存在',
           requestedPath: decodedPath,
           searchedLibraries: config.mediaPaths.length
@@ -265,7 +265,7 @@ export const mediaController = {
       } else {
         // 视频文件或其他：使用 FFmpeg 生成缩略图
         const videoExts = ['.mp4', '.mkv', '.avi', '.mov', '.webm', '.wmv', '.flv', '.m4v', '.mpeg', '.mpg', '.3gp', '.3g2', '.rmvb', '.rm', '.asf', '.ts', '.mts']
-        
+
         if (videoExts.includes(ext)) {
           try {
             const thumbnailBuffer = await generateVideoThumbnailWithFFmpeg(resolvedPath)
@@ -273,7 +273,7 @@ export const mediaController = {
             ctx.body = thumbnailBuffer
           } catch (ffmpegError: any) {
             ctx.status = 500
-            ctx.body = { 
+            ctx.body = {
               error: '视频缩略图生成失败',
               details: ffmpegError.message
             }
@@ -302,18 +302,16 @@ export const mediaController = {
 async function generateVideoThumbnailWithFFmpeg(videoPath: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    
+
     ffmpeg(videoPath)
       // 在视频的第 2 秒处截取帧（如果视频短于 2 秒，则在 10% 位置）
       .seekInput('00:00:02')
       // 只处理 1 帧
       .frames(1)
-      // 设置输出尺寸为 300x200，保持宽高比
-      .size('300x200')
-      // 输出格式为 JPEG
+      // 输出格式为 Png
       .outputOptions('-f image2pipe')
-      .outputOptions('-c:v mjpeg')
-      .outputOptions('-q:v 2') // 高质量 JPEG
+      .outputOptions('-f image2pipe')
+      .outputOptions('-c:v png')
       .on('end', () => {
         resolve(Buffer.concat(chunks))
       })
@@ -341,7 +339,7 @@ async function generateVideoThumbnailWithFFmpeg(videoPath: string): Promise<Buff
 async function generateFirstFrameThumbnail(videoPath: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = []
-    
+
     ffmpeg(videoPath)
       // 不 seek，直接取第一帧
       .frames(1)
