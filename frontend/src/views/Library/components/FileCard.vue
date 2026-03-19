@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { NIcon, NImage } from 'naive-ui'
 import { FolderOutline, VideocamOutline } from '@vicons/ionicons5'
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 
 interface FileData {
   id: string
@@ -31,27 +31,15 @@ const emit = defineEmits<{
   click: [file: FileData]
 }>()
 
-const canvasRef = ref<HTMLCanvasElement | null>(null)
-const videoCanvasRef = ref<HTMLCanvasElement | null>(null)
-const videoThumbnailGenerated = ref(false)
-
-// 监听 Canvas 数据属性变化
-watch(() => canvasRef.value?.dataset.orientation, (newOrientation) => {
-  if (newOrientation) {
-    imageOrientation.value = newOrientation as 'landscape' | 'portrait' | 'square'
-    imageLoaded.value = true
-  }
-}, { immediate: true })
+const imageFit = ref<'cover' | 'contain'>('contain')
+const imageOrientation = ref<'landscape' | 'portrait' | 'square'>('landscape')
+const imageLoaded = ref(false)
 
 const handleClick = () => {
   emit('click', props.file)
 }
 
 // 检测图片方向并设置合适的显示比例
-const imageFit = ref<'cover' | 'contain'>('contain')
-const imageOrientation = ref<'landscape' | 'portrait' | 'square'>('landscape')
-const imageLoaded = ref(false)
-
 const handleImageLoad = (event: Event) => {
   const img = event.target as HTMLImageElement
   if (img.naturalWidth && img.naturalHeight) {
@@ -92,189 +80,6 @@ const isVideoFile = computed(() => {
   ].includes(cleanExt)
 })
 
-// 获取视频文件 URL
-const getVideoFileUrl = computed(() => {
-  if (!isVideoFile.value) return null
-  const filePath = props.file.fullPath || props.file.path
-  const library = (props.file as any).library || 0
-  return `/api/media/file?library=${library}&path=${encodeURIComponent(filePath)}`
-})
-
-// 前端 Canvas 抽取视频封面（优化版：优先使用后端缩略图）
-const generateVideoThumbnail = async () => {
-  if (!videoCanvasRef.value || !isVideoFile.value || videoThumbnailGenerated.value) return
-
-  const videoUrl = getVideoFileUrl.value
-  if (!videoUrl) return
-
-  const library = (props.file as any).library || 0
-  const thumbnailUrl = `/api/media/thumbnail?library=${library}&path=${encodeURIComponent(props.file.fullPath || props.file.path)}`
-
-  const canvas = videoCanvasRef.value
-  const ctx = canvas.getContext('2d', { alpha: false })
-
-  if (!ctx) return
-
-  // 初始化 Canvas 尺寸
-  canvas.width = 400
-  canvas.height = 300
-
-  return new Promise<void>((resolve, reject) => {
-    let hasResolved = false
-
-    // 优先使用后端生成的缩略图
-    const img = new Image()
-    img.crossOrigin = 'anonymous'
-
-    const timeoutId = setTimeout(() => {
-      if (!hasResolved) {
-        hasResolved = true
-        showVideoPlaceholder(ctx)
-        videoThumbnailGenerated.value = true
-        resolve()
-      }
-    }, 8000)
-
-    img.onload = () => {
-      if (hasResolved) return
-      clearTimeout(timeoutId)
-      
-      // 绘制后端缩略图
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      canvas.dataset.loaded = 'true'
-      hasResolved = true
-      videoThumbnailGenerated.value = true
-      resolve()
-    }
-
-    img.onerror = () => {
-      if (hasResolved) return
-      clearTimeout(timeoutId)
-      // 降级到前端 Canvas 生成
-      fallbackToFrontendGeneration(canvas, ctx, videoUrl).then(resolve).catch(reject)
-    }
-
-    img.src = thumbnailUrl
-  })
-}
-
-// 降级方案：前端 Canvas 生成（原有逻辑保持不变）
-const fallbackToFrontendGeneration = async (
-  canvas: HTMLCanvasElement,
-  ctx: CanvasRenderingContext2D,
-  videoUrl: string
-): Promise<void> => {
-  return new Promise<void>((resolve) => {
-    const video = document.createElement('video')
-    video.crossOrigin = 'anonymous'
-    video.preload = 'metadata'
-    video.muted = true
-
-    let hasResolved = false
-
-    video.addEventListener('loadeddata', () => {
-      const duration = video.duration || 1
-      video.currentTime = Math.min(2, duration * 0.1)
-    })
-
-    video.addEventListener('seeked', () => {
-      if (hasResolved) return
-      hasResolved = true
-
-      try {
-        // 设置 Canvas 尺寸
-        canvas.width = 400
-        canvas.height = 300
-
-        // 绘制视频帧
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-        canvas.dataset.loaded = 'true'
-        videoThumbnailGenerated.value = true
-        resolve()
-      } catch (drawError) {
-        showVideoPlaceholder(ctx)
-        videoThumbnailGenerated.value = true
-        resolve()
-      }
-    })
-
-    video.addEventListener('error', () => {
-      if (hasResolved) return
-      hasResolved = true
-
-      if (ctx) {
-        showVideoPlaceholder(ctx)
-      }
-
-      videoThumbnailGenerated.value = true
-      resolve()
-    })
-
-    // 超时保护（10 秒）
-    setTimeout(() => {
-      if (!hasResolved) {
-        hasResolved = true
-
-        if (ctx) {
-          showVideoPlaceholder(ctx)
-        }
-
-        videoThumbnailGenerated.value = true
-        resolve()
-      }
-    }, 10000)
-
-    // 开始加载视频
-    video.src = videoUrl
-  })
-}
-
-// 显示视频占位图标
-const showVideoPlaceholder = (ctx: CanvasRenderingContext2D) => {
-  const canvas = ctx.canvas
-
-  // 清空画布
-  ctx.fillStyle = '#1a1a1a'
-  ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-  // 绘制播放按钮（三角形）
-  const centerX = canvas.width / 2
-  const centerY = canvas.height / 2
-  const size = 30
-
-  ctx.fillStyle = '#18a058'
-  ctx.beginPath()
-  ctx.moveTo(centerX - size / 2, centerY - size / 2)
-  ctx.lineTo(centerX + size / 2, centerY)
-  ctx.lineTo(centerX - size / 2, centerY + size / 2)
-  ctx.closePath()
-  ctx.fill()
-
-  // 绘制外圈
-  ctx.strokeStyle = '#18a058'
-  ctx.lineWidth = 3
-  ctx.beginPath()
-  ctx.arc(centerX, centerY, size * 0.8, 0, Math.PI * 2)
-  ctx.stroke()
-}
-
-// 组件挂载后生成视频封面
-onMounted(() => {
-  if (isVideoFile.value && videoCanvasRef.value && !videoThumbnailGenerated.value) {
-    // 使用 IntersectionObserver 实现懒加载
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          generateVideoThumbnail()
-          observer.disconnect()
-        }
-      })
-    }, { rootMargin: '100px' })
-
-    observer.observe(videoCanvasRef.value)
-  }
-})
-
 </script>
 
 <template>
@@ -293,17 +98,12 @@ onMounted(() => {
     <!-- 文件 -->
     <template v-else>
       <div class="media-wrapper" :class="[imageOrientation, { 'video-wrapper': isVideoFile }]">
-        <!-- Canvas 前端压缩（大图片和视频） -->
-        <canvas v-if="shouldGenerateThumbnail || isVideoFile" class="media-thumbnail"
-          :data-src="thumbnailUrl || `/api/media/file?library=${(file as any).library || 0}&path=${encodeURIComponent(props.file.fullPath || props.file.path)}`"
-          ref="canvasRef" />
+        <!-- 统一使用 NImage 组件加载缩略图 -->
+        <n-image v-if="thumbnailUrl" :src="thumbnailUrl" :alt="file.name" class="media-thumbnail" :object-fit="imageFit"
+          @load="handleImageLoad" preview-disabled />
 
-        <!-- NImage 组件加载小图片 -->
-        <n-image v-else-if="thumbnailUrl && !thumbnailUrl.startsWith('canvas:')" :src="thumbnailUrl" :alt="file.name"
-          class="media-thumbnail" :object-fit="imageFit" @load="handleImageLoad" preview-disabled />
-
-        <!-- 降级：显示图标（仅在 Canvas 生成失败时） -->
-        <n-icon v-else-if="isVideoFile && !shouldGenerateThumbnail" class="video-icon" size="64" color="#18a058">
+        <!-- 降级：显示视频图标（当没有缩略图时） -->
+        <n-icon v-else-if="isVideoFile" class="video-icon" size="64" color="#18a058">
           <VideocamOutline />
         </n-icon>
       </div>
@@ -334,41 +134,54 @@ onMounted(() => {
       background: transparent; // 透明背景，无颜色
       transition: all 0.3s ease;
 
-      // 横拍图容器：4:3 比例
-      &.landscape {
-        padding-top: 25%; // 高/宽 = 3/4 = 0.75
-      }
+      // // 横拍图容器：4:3 比例
+      // &.landscape {
+      //   padding-top: 25%; // 高/宽 = 3/4 = 0.75
+      // }
 
-      // 竖拍图容器：3:4 比例
-      &.portrait {
-        padding-top: 133.33%; // 高/宽 = 4/3 ≈ 1.33
-      }
+      // // 竖拍图容器：3:4 比例
+      // &.portrait {
+      //   padding-top: 25%; // 高/宽 = 4/3 ≈ 1.33
+      // }
 
-      // 正方形图容器：1:1 比例
-      &.square {
-        padding-top: 25%; // 高/宽 = 1
-      }
+      // // 正方形图容器：1:1 比例
+      // &.square {
+      //   padding-top: 25%; // 高/宽 = 1
+      // }
 
-      // 未加载时默认 4:3
-      &:not(.landscape):not(.portrait):not(.square) {
-        padding-top: 25%;
-      }
+      // // 未加载时默认 4:3
+      // &:not(.landscape):not(.portrait):not(.square) {
+      //   padding-top: 25%;
+      // }
 
-      // 视频文件样式（简约图标）
-      &.video-wrapper {
-        background: transparent; // 透明背景
+      // // 视频文件也支持横屏竖屏方向
+      // &.video-wrapper.landscape {
+      //   padding-top: 25%;
+      // }
 
-        .video-icon {
-          font-size: 48px;
-          transition: transform 0.3s ease;
-        }
+      // &.video-wrapper.portrait {
+      //   padding-top: 133.33%;
+      // }
 
-        &:hover {
-          .video-icon {
-            transform: scale(1.1);
-          }
-        }
-      }
+      // &.video-wrapper.square {
+      //   padding-top: 100%;
+      // }
+
+      // // 视频文件基础样式（简约图标）
+      // &.video-wrapper {
+      //   background: transparent; // 透明背景
+
+      //   .video-icon {
+      //     font-size: 48px;
+      //     transition: transform 0.3s ease;
+      //   }
+
+      //   &:hover {
+      //     .video-icon {
+      //       transform: scale(1.1);
+      //     }
+      //   }
+      // }
 
       // 文件夹样式（简约图标）
       &.folder-wrapper {
@@ -390,10 +203,11 @@ onMounted(() => {
       }
 
       .media-thumbnail {
+        position: relative;
         top: 0;
         left: 0;
         width: 100%;
-        height: 100%;
+        object-fit: cover;
         transition: transform 0.3s ease;
       }
 

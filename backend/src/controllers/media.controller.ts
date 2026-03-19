@@ -256,11 +256,23 @@ export const mediaController = {
       if (imageExts.includes(ext)) {
         // 图片文件：使用 Sharp 直接返回缩放后的版本
         const thumbnail = await sharp(resolvedPath)
-          .resize(300, 200, { fit: 'cover', position: 'center' })
-          .jpeg({ quality: 80 })
+          .rotate()
+          .resize(200, 200, {
+            fit: 'contain',           // ✅ 等比例缩放 + 留白
+            position: 'center',       // ✅ 居中
+            background: {             // ✅ 关键：补背景
+              r: 0,
+              g: 0,
+              b: 0,
+              alpha: 0 // 或 1 = 黑底
+            }
+          })
+          .png({
+            compressionLevel: 8       // ✅ PNG 正确参数
+          })
           .toBuffer()
 
-        ctx.type = 'image/jpeg'
+        ctx.type = 'image/png'
         ctx.body = thumbnail
       } else {
         // 视频文件或其他：使用 FFmpeg 生成缩略图
@@ -269,7 +281,7 @@ export const mediaController = {
         if (videoExts.includes(ext)) {
           try {
             const thumbnailBuffer = await generateVideoThumbnailWithFFmpeg(resolvedPath)
-            ctx.type = 'image/jpeg'
+            ctx.type = 'image/png'
             ctx.body = thumbnailBuffer
           } catch (ffmpegError: any) {
             ctx.status = 500
@@ -312,8 +324,24 @@ async function generateVideoThumbnailWithFFmpeg(videoPath: string): Promise<Buff
       .outputOptions('-f image2pipe')
       .outputOptions('-f image2pipe')
       .outputOptions('-c:v png')
-      .on('end', () => {
-        resolve(Buffer.concat(chunks))
+      .on('end', async () => {
+        try {
+          const rawBuffer = Buffer.concat(chunks)
+
+          const thumbnail = await sharp(rawBuffer)
+            .rotate()
+            .resize(200, 200, {
+              fit: 'contain',
+              position: 'center',
+              background: { r: 0, g: 0, b: 0, alpha: 0 }
+            })
+            .png({ compressionLevel: 8 })
+            .toBuffer()
+
+          resolve(thumbnail)
+        } catch (err) {
+          reject(err)
+        }
       })
       .on('error', (error) => {
         // 如果 seek 失败，尝试不指定时间点，直接取第一帧
@@ -343,12 +371,28 @@ async function generateFirstFrameThumbnail(videoPath: string): Promise<Buffer> {
     ffmpeg(videoPath)
       // 不 seek，直接取第一帧
       .frames(1)
-      .size('300x200')
+      .size('200x200')
       .outputOptions('-f image2pipe')
       .outputOptions('-c:v mjpeg')
       .outputOptions('-q:v 2')
-      .on('end', () => {
-        resolve(Buffer.concat(chunks))
+      .on('end', async () => {
+        try {
+          const rawBuffer = Buffer.concat(chunks)
+
+          const thumbnail = await sharp(rawBuffer)
+            .rotate()
+            .resize(200, 200, {
+              fit: 'contain',
+              position: 'center',
+              background: { r: 0, g: 0, b: 0, alpha: 0 }
+            })
+            .png({ compressionLevel: 8 })
+            .toBuffer()
+
+          resolve(thumbnail)
+        } catch (err) {
+          reject(err)
+        }
       })
       .on('error', (error) => {
         reject(error)

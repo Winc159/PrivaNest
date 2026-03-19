@@ -70,7 +70,8 @@ export function useThumbnail() {
 
     // 2. 大图片（>=500KB）：使用 Canvas 前端压缩
     if (isImageFile(file) && sizeBytes >= 500 * 1024) {
-      return `canvas:${library}:${encodeURIComponent(file.fullPath || file.path)}`
+      // return `canvas:${library}:${encodeURIComponent(file.fullPath || file.path)}`
+      return `/api/media/thumbnail?library=${library}&path=${encodeURIComponent(file.fullPath || file.path)}`
     }
 
     // 3. 视频文件：优先使用后端 FFmpeg 生成缩略图
@@ -85,13 +86,13 @@ export function useThumbnail() {
   const shouldGenerateThumbnail = (file: any) => {
     const url = getThumbnailUrl(file)
     if (!url) return false
-    
+
     // 大图片需要前端 Canvas 压缩
     if (url.startsWith('canvas:')) return true
-    
+
     // 视频文件需要 Canvas 元素显示后端缩略图
     if (url.includes('/api/media/thumbnail') && isVideoFile(file)) return true
-    
+
     return false
   }
 
@@ -110,7 +111,7 @@ export function useThumbnail() {
     return `${file.path}:${file.mtime || ''}:${file.size || ''}`
   }
 
-  // Canvas 生成缩略图（支持图片和视频）
+  // // Canvas 生成缩略图（支持图片和视频）
   const generateThumbnail = async (canvas: HTMLCanvasElement, src: string) => {
     try {
       // 检查缓存
@@ -303,7 +304,7 @@ export function useThumbnail() {
     try {
       // 判断是否是后端 thumbnail 接口 URL
       const isBackendThumbnail = src.includes('/api/media/thumbnail')
-      
+
       if (isBackendThumbnail) {
         // 方案 1：使用后端 FFmpeg 生成的缩略图
         return await generateFromBackendThumbnail(canvas, src)
@@ -330,7 +331,7 @@ export function useThumbnail() {
 
       img.onload = () => {
         clearTimeout(timeoutId)
-        
+
         if (img.width > 0 && img.height > 0) {
           const ctx = canvas.getContext('2d')
           if (ctx) {
@@ -346,7 +347,7 @@ export function useThumbnail() {
             const drawY = (canvas.height - drawHeight) / 2
 
             ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight)
-            
+
             // 设置方向信息
             const aspectRatio = img.width / img.height
             let orientationClass = ''
