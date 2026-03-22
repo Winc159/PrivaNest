@@ -44,7 +44,7 @@ const {
   handleRefresh
 } = useFileNavigation(router)
 
-// 图片预览逻辑
+// 图片预览逻辑（传入 currentLibrary 函数以支持预加载）
 const {
   showImagePreview,
   imageList,
@@ -53,8 +53,15 @@ const {
   prevImage,
   nextImage,
   handleUpdateShow,
-  handleUpdateCurrent
-} = useImagePreview(mediaStore)
+  handleUpdateCurrent,
+  preloadCache, // 新增：访问预加载缓存
+  preloadAdjacentImages // 新增：手动触发预加载
+} = useImagePreview(mediaStore, () => currentLibrary.value, {
+  baseCount: 2,    // 基础预加载前后各 2 张
+  maxCount: 5,     // 最大预加载前后各 5 张
+  adaptive: true,  // 启用动态调整
+  speedThreshold: 500 // 快速切换阈值 500ms
+})
 
 // 视频播放器状态
 const showFullscreenPlayer = ref(false)
@@ -77,13 +84,30 @@ let styleElement: HTMLStyleElement | null = null
 // 所有图片的 URL 列表（用于 NImageGroup）
 const imageSrcList = computed(() => {
   return imageList.value.map((file: FileData) => {
+    // 始终返回原图 URL
+    const library = currentLibrary.value
     let filePath = file.path
     if (!filePath.startsWith('/')) {
       filePath = '/' + filePath
     }
-    return `/api/media/file?library=${currentLibrary.value}&path=${encodeURIComponent(filePath)}`
+    const originalUrl = `/api/media/file?library=${library}&path=${encodeURIComponent(filePath)}`
+
+    return originalUrl
   })
 })
+
+// 监听 currentImageIndex 变化，动态更新 src-list
+watch(currentImageIndex, (newIndex, oldIndex) => {
+  if (newIndex !== oldIndex && newIndex >= 0 && newIndex < imageList.value.length) {
+    // 新的当前图片需要立即加载
+    const newCurrentFile = imageList.value[newIndex]
+    if (newCurrentFile && !preloadCache.value.has(newCurrentFile.id)) {
+      nextTick(() => {
+        preloadAdjacentImages()
+      })
+    }
+  }
+}, { immediate: false })
 
 // 滚轮切换图片
 let scrollTimeout: ReturnType<typeof setTimeout> | null = null
