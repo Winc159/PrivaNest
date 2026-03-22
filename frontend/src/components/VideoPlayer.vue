@@ -85,6 +85,11 @@ const playerOptions = computed(() => ({
     src: currentVideoUrl.value,
     type: getMimeType(getVideoExtension())
   }],
+  // 注意：Video.js 会自动发起多次 HTTP 请求，这是正常行为：
+  // 1. 第 1 次：获取视频元数据（metadata）
+  // 2. 第 2 次：预加载视频内容（preload: 'auto'）
+  // 3-4 次：浏览器 Range 请求，用于分段加载和进度条拖动（206 Partial Content）
+  // 这种多请求机制是现代视频流媒体的标准做法，支持快速启动和流畅拖动
   controlBar: {
     skipButtons: {
       forward: 30,

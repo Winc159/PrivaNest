@@ -225,7 +225,8 @@ onMounted(async () => {
   })
 
   window.addEventListener('keydown', handleKeydown)
-  window.addEventListener('wheel', handleGlobalWheel, { passive: false })
+  // 使用 passive: true 避免 Chrome 警告，因为我们不需要阻止默认滚动行为
+  window.addEventListener('wheel', handleGlobalWheel, { passive: true })
 
   // 动态注入全局遮罩样式到 head
   styleElement = document.createElement('style')
