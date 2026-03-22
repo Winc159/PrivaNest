@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NEmpty, NSpin, NDivider } from 'naive-ui'
 import FileCard from './FileCard.vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 
 interface FileData {
   id: string
@@ -30,6 +31,33 @@ const emit = defineEmits<{
   'scroll': [event: Event]
 }>()
 
+const contentRef = ref<HTMLDivElement | null>(null)
+const containerHeight = ref('calc(100vh - 160px)')
+
+// 动态计算内容区域高度
+const updateContainerHeight = () => {
+  if (!contentRef.value) return
+  
+  // 获取父容器（library-container）
+  const parent = contentRef.value.parentElement
+  if (!parent) return
+  
+  // 获取头部和面包屑的高度
+  const header = parent.querySelector('.library-header') as HTMLElement
+  const breadcrumb = parent.querySelector('.library-breadcrumb') as HTMLElement
+  
+  let offsetHeight = 0
+  if (header) offsetHeight += header.offsetHeight
+  if (breadcrumb) offsetHeight += breadcrumb.offsetHeight
+  
+  // 加上 padding 和其他边距
+  const extraSpacing = 40 // 上下 padding + gap
+  
+  // 计算可用高度
+  const availableHeight = window.innerHeight - offsetHeight - extraSpacing
+  containerHeight.value = `${availableHeight}px`
+}
+
 const handleFolderClick = (folder: FileData) => {
   emit('folder-click', folder.path)
 }
@@ -37,10 +65,25 @@ const handleFolderClick = (folder: FileData) => {
 const handleFileClick = (file: FileData) => {
   emit('file-click', file)
 }
+
+onMounted(() => {
+  // 初始计算高度
+  updateContainerHeight()
+  
+  // 监听窗口大小变化
+  window.addEventListener('resize', updateContainerHeight)
+  
+  // 延迟计算确保 DOM 完全渲染
+  setTimeout(updateContainerHeight, 100)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateContainerHeight)
+})
 </script>
 
 <template>
-  <div class="content" @scroll="(e) => emit('scroll', e)">
+  <div ref="contentRef" class="content" :style="{ height: containerHeight }" @scroll="(e) => emit('scroll', e)">
     <n-empty 
       v-if="!loading && folders.length === 0 && files.length === 0" 
       description="暂无文件"
@@ -116,9 +159,9 @@ const handleFileClick = (file: FileData) => {
 <style lang="scss" scoped>
 .content {
   padding: 20px;
-  height: calc(100vh - 160px);
   overflow-y: auto;
   background: #f8f9fa;
+  transition: height 0.2s ease; // 平滑过渡
   
   // 自定义滚动条
   &::-webkit-scrollbar {
@@ -137,15 +180,70 @@ const handleFileClick = (file: FileData) => {
       background: #b0b0b0;
     }
   }
+  
+  // 移动端减少 padding
+  @media (max-width: 768px) {
+    padding: 12px;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 8px;
+  }
 }
 
 // Finder 风格网格布局 - 类似 macOS 文件系统
 .masonry-grid {
   display: grid;
   gap: 20px;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  // 响应式列数：根据屏幕宽度自动调整
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
   grid-auto-flow: dense;
   align-items: start; // 顶部对齐，允许不同高度的项目
+  
+  // 超大屏幕（桌面显示器）
+  @media (min-width: 1920px) {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 24px;
+  }
+  
+  // 大屏幕（笔记本/小桌面）
+  @media (min-width: 1440px) and (max-width: 1919px) {
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 20px;
+  }
+  
+  // 中等屏幕（平板横屏/小笔记本）
+  @media (min-width: 1024px) and (max-width: 1439px) {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 16px;
+  }
+  
+  // 小屏幕（平板竖屏）
+  @media (min-width: 768px) and (max-width: 1023px) {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 14px;
+  }
+  
+  // 手机横屏/大手机竖屏（自适应，至少 2 列）
+  @media (min-width: 568px) and (max-width: 767px) {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  
+  // 手机竖屏（自适应，可能 1-2 列）
+  @media (max-width: 567px) {
+    // 使用 auto-fit 配合最小宽度，让浏览器自动计算最优列数
+    // 320px 屏幕 - 140px 卡片 = 1 列
+    // 414px 屏幕 - 140px 卡片 = 2 列
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 10px;
+  }
+  
+  // 超小屏幕（如 iPhone SE）强制 1 列
+  @media (max-width: 375px) {
+    grid-template-columns: 1fr; // 强制单列
+    gap: 8px;
+  }
   
   .grid-item {
     min-width: 0;
@@ -164,6 +262,11 @@ const handleFileClick = (file: FileData) => {
     .media-item {
       width: 100%;
     }
+  }
+  
+  // 列表模式的响应式适配
+  @media (max-width: 768px) {
+    gap: 8px;
   }
 }
 

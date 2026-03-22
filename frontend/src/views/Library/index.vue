@@ -344,8 +344,29 @@ onUnmounted(() => {
 <style lang="scss" scoped>
 .library-container {
   min-height: 100vh;
+  height: 100vh; // 固定视口高度
   background: #f8f9fa;
   display: flex;
   flex-direction: column;
+  overflow: hidden; // 防止整体滚动
+  
+  // 确保所有子元素正确伸缩
+  > * {
+    flex-shrink: 0; // 头部和面包屑不收缩
+  }
+  
+  // 文件列表区域占据剩余空间
+  :deep(.content) {
+    flex: 1;
+    min-height: 0; // 允许小于内容高度
+    overflow-y: auto; // 内部滚动
+  }
+}
+
+// 响应式适配
+@media (max-width: 768px) {
+  .library-container {
+    height: 100vh; // 移动端保持全屏
+  }
 }
 </style>

@@ -63,7 +63,7 @@ onMounted(async () => {
       const entry = entries[0]
       if (entry?.isIntersecting && !isLoaded.value) {
         isLoaded.value = true
-        
+
         // 断开观察
         observer?.disconnect()
         observer = null
@@ -106,14 +106,8 @@ onUnmounted(() => {
     <template v-else>
       <div ref="imageContainerRef" class="media-wrapper">
         <!-- 使用占位符 + 真实图片的懒加载方案 -->
-        <n-image
-          v-if="thumbnailUrl && isLoaded"
-          :src="thumbnailUrl"
-          :alt="file.name"
-          class="media-thumbnail"
-          :object-fit="imageFit"
-          preview-disabled
-        />
+        <n-image v-if="thumbnailUrl && isLoaded" :src="thumbnailUrl" :alt="file.name" class="media-thumbnail"
+          :object-fit="imageFit" preview-disabled />
       </div>
       <div class="media-name">{{ file.name }}</div>
     </template>
@@ -164,6 +158,7 @@ onUnmounted(() => {
         position: relative;
         top: 0;
         left: 0;
+        justify-content: center;
         width: 100%;
         object-fit: cover;
         transition: transform 0.3s ease;
@@ -221,6 +216,7 @@ onUnmounted(() => {
 
       .media-thumbnail {
         position: absolute;
+        justify-content: center;
         top: 0;
         left: 0;
         width: 100%;
